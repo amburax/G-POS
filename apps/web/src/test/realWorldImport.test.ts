@@ -5,19 +5,22 @@ import { normalizeName, normalizePhone } from "@/lib/customerFields";
 const mockDb = {
   uom: { findFirst: vi.fn() },
   tenant: { findUnique: vi.fn() },
-  productVariant: { findFirst: vi.fn() },
-  product: { findFirst: vi.fn() },
-  sale: { findFirst: vi.fn(), create: vi.fn() },
-  khataReceivableEntry: { create: vi.fn() },
+  productVariant: { findFirst: vi.fn(), update: vi.fn() },
+  product: { findFirst: vi.fn(), update: vi.fn() },
+  sale: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  khataReceivableEntry: { create: vi.fn(), updateMany: vi.fn() },
   customerCreditAccount: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn() },
-  customer: { findFirst: vi.fn(), create: vi.fn() },
+  customer: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   company: { findFirst: vi.fn(), create: vi.fn(), findUnique: vi.fn() },
   store: { updateMany: vi.fn(), findUnique: vi.fn() },
 };
 
 vi.mock("@/server/db", () => ({ db: mockDb }));
 vi.mock("@/server/identity/audit", () => ({ writeAuditLog: vi.fn(async () => {}) }));
-vi.mock("@/server/inventory/inventoryService", () => ({ receiveStock: vi.fn(async () => ({ status: "ok" })) }));
+vi.mock("@/server/inventory/inventoryService", () => ({
+  receiveStock: vi.fn(async () => ({ status: "ok" })),
+  recordStockTake: vi.fn(async () => ({ status: "ok" })),
+}));
 vi.mock("@/server/tenant/tenantCompany", () => ({
   ensureTenantCompany: vi.fn(async () => ({ id: "c1", code: "CO", name: "Hazari", currency: "INR" })),
 }));
@@ -192,6 +195,79 @@ describe("Real-world Smart Import Verification", () => {
       expect(firstCall.paidMinor).toBe(0);
       expect(firstCall.initialOnAccountMinor).toBe(120000);
       expect(firstCall.billNumber).toContain("OPENING-");
+    });
+
+    it("updates existing customers and their opening Khata dues when re-importing the same file", async () => {
+      vi.mocked(createCustomer).mockResolvedValueOnce({
+        status: "ok",
+        customer: { id: "cust-919998238034", name: "ALI SHOP", phone: "+919998238034" },
+        existing: true,
+      });
+
+      // Opening sale already existed with old balance 1000
+      mockDb.sale.findFirst.mockResolvedValueOnce({ id: "sale-existing", totalMinor: 100000 });
+
+      const res = await runImport({
+        actor,
+        storeId: "store-1",
+        kind: "customers",
+        batchId: "batch-cust-reimport",
+        firstRowNumber: 2,
+        rows: [{ name: "ALI SHOP UPDATED", phone: "919998238034", amountDue: "1500" }],
+      });
+
+      expect(res.status).toBe("ok");
+      const outcome = (res as { outcome: { created: number; updated: number; errors: unknown[] } }).outcome;
+      expect(outcome.created).toBe(0);
+      expect(outcome.updated).toBe(1);
+
+      // Verified customer record update and sale update
+      expect(mockDb.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "cust-919998238034" },
+          data: expect.objectContaining({ name: "ALI SHOP UPDATED" }),
+        })
+      );
+      expect(mockDb.sale.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "sale-existing" },
+          data: expect.objectContaining({ totalMinor: 150000 }),
+        })
+      );
+    });
+
+    it("updates existing products/variants with new prices and stock when re-importing", async () => {
+      mockDb.product.findFirst.mockResolvedValueOnce({ id: "prod-capri" });
+      mockDb.productVariant.findFirst.mockResolvedValueOnce({
+        id: "var-capri-4way",
+        productId: "prod-capri",
+        sku: "CAPRI-4WAY",
+        barcode: null,
+      });
+
+      const res = await runImport({
+        actor,
+        storeId: "store-1",
+        kind: "products",
+        batchId: "batch-prod-reimport",
+        firstRowNumber: 2,
+        rows: [
+          { name: "Capri", variant: "4 Way", price: "220", cost: "130", stock: "25", gstType: "slab" },
+        ],
+      });
+
+      expect(res.status).toBe("ok");
+      const outcome = (res as { outcome: { created: number; updated: number; errors: unknown[] } }).outcome;
+      expect(outcome.created).toBe(0);
+      expect(outcome.updated).toBe(1);
+
+      // Check variant update
+      expect(mockDb.productVariant.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "var-capri-4way" },
+          data: expect.objectContaining({ priceMinor: 22000, costPriceMinor: 13000 }),
+        })
+      );
     });
   });
 });

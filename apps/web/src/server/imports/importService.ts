@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { writeAuditLog } from "@/server/identity/audit";
 import { createCustomer } from "@/server/sales/customers";
 import { createProduct, createVariant } from "@/server/catalog/catalogService";
-import { receiveStock } from "@/server/inventory/inventoryService";
+import { receiveStock, recordStockTake } from "@/server/inventory/inventoryService";
 import type { ImportKind } from "@/server/imports/importFields";
 import { normalizePhone } from "@/lib/customerFields";
 import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
@@ -34,6 +34,7 @@ export interface RowError {
 }
 export interface ImportOutcome {
   created: number;
+  updated: number;
   skipped: number;
   errors: RowError[];
 }
@@ -126,7 +127,7 @@ async function importCustomers(
   rows: ImportRow[],
   first: number
 ): Promise<ImportOutcome> {
-  const out: ImportOutcome = { created: 0, skipped: 0, errors: [] };
+  const out: ImportOutcome = { created: 0, updated: 0, skipped: 0, errors: [] };
   let company: { id: string; currency: string } | null = null;
   try {
     if (typeof ensureTenantCompany === "function") {
@@ -189,17 +190,37 @@ async function importCustomers(
     });
 
     if (res.status === "ok") {
-      if (res.existing) out.skipped++;
-      else out.created++;
+      const customerId = res.customer.id;
+      if (res.existing) {
+        // Customer already exists on file: update details from file
+        const updateData: Record<string, unknown> = {};
+        if (name && (res.customer.name.startsWith("Customer ") || res.customer.name !== name)) {
+          updateData.name = name;
+        }
+        if (rawEmail) updateData.email = rawEmail;
+        if (rawGstin) updateData.gstin = rawGstin;
+        if (Object.keys(updateData).length > 0 && db?.customer?.update) {
+          try {
+            await db.customer.update({
+              where: { id: customerId },
+              data: updateData,
+            });
+          } catch {
+            // Non-critical update error
+          }
+        }
+        out.updated++;
+      } else {
+        out.created++;
+      }
 
-      // If customer has an opening balance/due from old software, record in Khata
+      // If customer has an opening balance/due from old software, record or update in Khata
       if (company && due !== null && !Number.isNaN(due) && due > 0 && db?.sale?.create && db?.khataReceivableEntry?.create) {
         try {
-          const customerId = res.customer.id;
           const openingSaleNumber = `OPENING-${customerId.slice(-8).toUpperCase()}`;
           const existingOpeningSale = await db.sale.findFirst({
             where: { tenantId: actor.tenantId, customerId, billNumber: openingSaleNumber },
-            select: { id: true },
+            select: { id: true, totalMinor: true },
           });
 
           if (!existingOpeningSale) {
@@ -243,6 +264,22 @@ async function importCustomers(
                 idempotencyKey: `opening-bal-${customerId}-${batchId}`,
               },
             });
+          } else if (existingOpeningSale.totalMinor !== due && db?.sale?.update) {
+            // Update opening due if modified in re-imported file
+            await db.sale.update({
+              where: { id: existingOpeningSale.id },
+              data: {
+                totalMinor: due,
+                subtotalMinor: due,
+                initialOnAccountMinor: due,
+              },
+            });
+            if (db?.khataReceivableEntry?.updateMany) {
+              await db.khataReceivableEntry.updateMany({
+                where: { saleId: existingOpeningSale.id, tenantId: actor.tenantId },
+                data: { amountMinor: due },
+              });
+            }
           }
         } catch {
           // Opening balance shouldn't fail the customer creation itself
@@ -259,7 +296,7 @@ async function importCustomers(
 }
 
 async function importProducts(actor: Actor, storeId: string, batchId: string, rows: ImportRow[], first: number): Promise<ImportOutcome> {
-  const out: ImportOutcome = { created: 0, skipped: 0, errors: [] };
+  const out: ImportOutcome = { created: 0, updated: 0, skipped: 0, errors: [] };
   const uom =
     (await db.uom.findFirst({ where: { tenantId: actor.tenantId, isActive: true, code: { in: ["PCS", "NOS", "Nos", "PC"] } }, select: { id: true } })) ??
     (await db.uom.findFirst({ where: { tenantId: actor.tenantId, isActive: true }, orderBy: { code: "asc" }, select: { id: true } }));
@@ -318,6 +355,95 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
     const variantDesc = row.variant?.trim() || null;
     const size = row.size?.trim() || variantDesc || null;
     const colour = row.colour?.trim() || null;
+    const tax = { taxTreatment: gst.treatment, taxRateMode: gst.rateMode, taxRateBp: gst.rateBp, taxExemptionRef: gst.exemptionRef ?? null };
+    const mrp = money(row.mrp);
+    const mrpMinor = mrp !== null && !Number.isNaN(mrp) ? mrp : null;
+    const key = name.toLowerCase();
+    let productId = productIdByName.get(key);
+    if (!productId) {
+      productId = (await db.product.findFirst({ where: { tenantId: actor.tenantId, name: { equals: name, mode: "insensitive" } }, select: { id: true } }))?.id;
+    }
+
+    // Check if variant already exists (upsert / re-import support)
+    let existingVariant: { id: string; productId: string; sku: string; barcode: string | null } | null = null;
+    if (row.sku?.trim()) {
+      existingVariant = await db.productVariant.findFirst({
+        where: { tenantId: actor.tenantId, sku: row.sku.trim() },
+        select: { id: true, productId: true, sku: true, barcode: true },
+      });
+    }
+    if (!existingVariant && row.barcode?.trim()) {
+      existingVariant = await db.productVariant.findFirst({
+        where: { tenantId: actor.tenantId, barcode: row.barcode.trim() },
+        select: { id: true, productId: true, sku: true, barcode: true },
+      });
+    }
+    if (!existingVariant && productId) {
+      existingVariant = await db.productVariant.findFirst({
+        where: {
+          tenantId: actor.tenantId,
+          productId,
+          ...(size ? { size: { equals: size, mode: "insensitive" } } : { size: null }),
+          ...(colour ? { colour: { equals: colour, mode: "insensitive" } } : {}),
+        },
+        select: { id: true, productId: true, sku: true, barcode: true },
+      });
+    }
+
+    const correlationId = randomUUID();
+
+    if (existingVariant) {
+      // Existing variant found: update prices, tax, barcode, cost, and physical stock
+      if (db?.productVariant?.update) {
+        try {
+          await db.productVariant.update({
+            where: { id: existingVariant.id },
+            data: {
+              priceMinor: price,
+              mrpMinor,
+              ...(cost !== null && !Number.isNaN(cost) && cost >= 0 ? { costPriceMinor: cost } : {}),
+              ...(row.barcode?.trim() ? { barcode: row.barcode.trim() } : {}),
+              ...tax,
+            },
+          });
+        } catch {
+          // Variant update error
+        }
+      }
+
+      if (row.category?.trim() && db?.product?.update) {
+        try {
+          await db.product.update({
+            where: { id: existingVariant.productId },
+            data: { category: row.category.trim() },
+          });
+        } catch {
+          // Category update error
+        }
+      }
+
+      if (stock !== null && !Number.isNaN(stock)) {
+        const effectiveStock = Math.max(0, stock);
+        try {
+          await recordStockTake({
+            actor: { tenantId: actor.tenantId, userId: actor.userId, tenantRole: actor.tenantRole },
+            storeId,
+            variantId: existingVariant.id,
+            countedQuantity: effectiveStock,
+            reason: "Updated from re-import",
+            requestKey: `import-take:${batchId}:${existingVariant.id}`,
+            correlationId,
+          });
+        } catch {
+          // Stock count error
+        }
+      }
+
+      productIdByName.set(key, existingVariant.productId);
+      out.updated++;
+      continue;
+    }
+
     const sku =
       row.sku?.trim() ||
       [
@@ -329,21 +455,8 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
       ]
         .filter(Boolean)
         .join("-");
-    const existing = await db.productVariant.findFirst({ where: { tenantId: actor.tenantId, sku }, select: { id: true } });
-    if (existing) {
-      out.skipped++;
-      continue;
-    }
-    const tax = { taxTreatment: gst.treatment, taxRateMode: gst.rateMode, taxRateBp: gst.rateBp, taxExemptionRef: gst.exemptionRef ?? null };
-    const mrp = money(row.mrp);
-    const mrpMinor = mrp !== null && !Number.isNaN(mrp) ? mrp : null;
-    const key = name.toLowerCase();
-    let productId = productIdByName.get(key);
-    if (!productId) {
-      productId = (await db.product.findFirst({ where: { tenantId: actor.tenantId, name: { equals: name, mode: "insensitive" } }, select: { id: true } }))?.id;
-    }
+
     let variantId: string;
-    const correlationId = randomUUID();
     if (productId) {
       const v = await createVariant({
         actor,
@@ -404,7 +517,7 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
 }
 
 async function importSales(actor: Actor, storeId: string, batchId: string, rows: ImportRow[], first: number): Promise<ImportOutcome> {
-  const out: ImportOutcome = { created: 0, skipped: 0, errors: [] };
+  const out: ImportOutcome = { created: 0, updated: 0, skipped: 0, errors: [] };
   for (const [i, row] of rows.entries()) {
     const n = first + i;
     const billNumber = row.billNumber?.trim();

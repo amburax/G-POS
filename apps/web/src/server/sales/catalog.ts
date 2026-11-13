@@ -20,6 +20,7 @@ export interface PendingPriceOption {
 
 export interface CatalogHit {
   variantId: string;
+  productId: string;
   productName: string;
   sku: string;
   barcode: string | null;
@@ -40,7 +41,7 @@ export interface CatalogHit {
   pendingPrices?: PendingPriceOption[];
 }
 
-export const CATALOG_SEARCH_LIMIT = 30;
+export const CATALOG_SEARCH_LIMIT = 100;
 
 export interface CatalogFilters {
   category?: string;
@@ -103,6 +104,7 @@ export async function searchCatalogPage(params: {
     },
     select: {
       id: true,
+      productId: true,
       sku: true,
       barcode: true,
       size: true,
@@ -112,7 +114,7 @@ export async function searchCatalogPage(params: {
       taxRateBp: true,
       taxRateMode: true,
       taxTreatment: true,
-      product: { select: { name: true, imageUrl: true } },
+      product: { select: { id: true, name: true, imageUrl: true } },
       // Store-scoped so one store's count never appears on another's screen.
       stockLevels: { where: { storeId: params.storeId }, select: { quantity: true } },
     },
@@ -128,6 +130,7 @@ export async function searchCatalogPage(params: {
 
   const results = rows.map((v) => ({
     variantId: v.id,
+    productId: v.productId,
     productName: v.product.name,
     sku: v.sku,
     barcode: v.barcode,

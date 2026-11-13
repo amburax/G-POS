@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   computeSaleTotals,
@@ -25,6 +25,7 @@ import {
   Flame,
   Footprints,
   History,
+  Layers,
   LayoutGrid,
   Mail,
   MessageCircle,
@@ -79,6 +80,7 @@ import { playPosBeep } from "@/client/pos/posSound";
 
 interface CatalogHit {
   variantId: string;
+  productId?: string;
   productName: string;
   imageUrl: string | null;
   sku: string;
@@ -100,6 +102,18 @@ interface CatalogHit {
     oldStockRemaining?: number;
     newStockRemaining?: number;
   }[];
+}
+
+interface ProductGroup {
+  productId: string;
+  productName: string;
+  imageUrl: string | null;
+  variants: CatalogHit[];
+  minPriceMinor: number;
+  maxPriceMinor: number;
+  totalStock: number | null;
+  hasStock: boolean;
+  allOutOfStock: boolean;
 }
 
 interface CartLine extends PricedLine {
@@ -375,6 +389,7 @@ export function PosTerminal(props: {
   const [offerModalOpen, setOfferModalOpen] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [salesPersonModalOpen, setSalesPersonModalOpen] = useState(false);
+  const [selectedProductVariants, setSelectedProductVariants] = useState<ProductGroup | null>(null);
   const [moreActionsModalOpen, setMoreActionsModalOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [lineDiscountLine, setLineDiscountLine] = useState<CartLine | null>(null);
@@ -560,6 +575,43 @@ export function PosTerminal(props: {
 
   const settled = search.term === searchKey;
   const results = search.results;
+
+  // Group search hits by parent product so multi-variant items (e.g. Capri, Cargo, Chadda)
+  // appear as 1 clean product card rather than duplicate clutter on the POS screen.
+  const productGroups = useMemo<ProductGroup[]>(() => {
+    const map = new Map<string, ProductGroup>();
+    for (const hit of results) {
+      const key = hit.productId || hit.productName.toLowerCase();
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          productId: hit.productId || key,
+          productName: hit.productName,
+          imageUrl: hit.imageUrl || null,
+          variants: [],
+          minPriceMinor: hit.priceMinor,
+          maxPriceMinor: hit.priceMinor,
+          totalStock: null,
+          hasStock: false,
+          allOutOfStock: true,
+        };
+        map.set(key, group);
+      }
+      group.variants.push(hit);
+      if (hit.priceMinor < group.minPriceMinor) group.minPriceMinor = hit.priceMinor;
+      if (hit.priceMinor > group.maxPriceMinor) group.maxPriceMinor = hit.priceMinor;
+      if (hit.stockQuantity !== null) {
+        group.totalStock = (group.totalStock ?? 0) + hit.stockQuantity;
+        if (hit.stockQuantity > 0) {
+          group.hasStock = true;
+          group.allOutOfStock = false;
+        }
+      } else {
+        group.allOutOfStock = false;
+      }
+    }
+    return Array.from(map.values());
+  }, [results]);
 
   // "Load more": the next page for the same query and filters, appended. A change of search or
   // filter while it loads wins (the key check drops the stale page).
@@ -886,6 +938,7 @@ export function PosTerminal(props: {
   function startNewSale() {
     clearDiscount();
     setCart([]);
+    setSelectedProductVariants(null);
     setCustomer(null);
     setSalesPerson(null);
     setPicker({ open: false, mode: "search" });
@@ -1485,45 +1538,80 @@ export function PosTerminal(props: {
                 )}
 
                 <div className={`grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3 transition-opacity duration-150 ${searching && results.length > 0 ? "opacity-60" : ""}`} aria-busy={searching}>
-                  {results.map((hit, i) => {
-                    const stock = stockPill(hit.stockQuantity, hit.reservedQuantity);
+                  {productGroups.map((group, i) => {
+                    const isMultiVariant = group.variants.length > 1;
+                    const singleHit = group.variants[0];
+                    const stock = isMultiVariant
+                      ? group.totalStock !== null
+                        ? stockPill(group.totalStock, 0)
+                        : { className: "border-sky-200 bg-sky-50 text-sky-800", dot: "bg-sky-500", text: `${group.variants.length} options` }
+                      : stockPill(singleHit.stockQuantity, singleHit.reservedQuantity);
+
+                    const priceText = isMultiVariant
+                      ? group.minPriceMinor === group.maxPriceMinor
+                        ? formatMinor(group.minPriceMinor)
+                        : `${formatMinor(group.minPriceMinor)} – ${formatMinor(group.maxPriceMinor)}`
+                      : formatMinor(singleHit.priceMinor);
+
                     return (
                       <button
                         type="button"
-                        key={hit.variantId}
-                        onClick={() => handleScanOrSelect(hit)}
-                        aria-label={`Add ${hit.productName} to cart, ${formatMinor(hit.priceMinor)}`}
-                        className="pos-rise amb-lift amb-press group flex cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-sm hover:border-sky-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+                        key={group.productId}
+                        onClick={() => {
+                          if (isMultiVariant) {
+                            setSelectedProductVariants(group);
+                          } else {
+                            handleScanOrSelect(singleHit);
+                          }
+                        }}
+                        aria-label={
+                          isMultiVariant
+                            ? `Choose from ${group.variants.length} options for ${group.productName}`
+                            : `Add ${singleHit.productName} to cart, ${formatMinor(singleHit.priceMinor)}`
+                        }
+                        className="pos-rise amb-lift amb-press group relative flex cursor-pointer flex-col rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-sm hover:border-sky-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
                         style={{ ["--i" as string]: i }}
                       >
                         <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-md bg-slate-50">
-                          {hit.imageUrl ? (
+                          {group.imageUrl ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={hit.imageUrl} alt={hit.productName} className="h-full w-full object-cover" />
+                            <img src={group.imageUrl} alt={group.productName} className="h-full w-full object-cover" />
                           ) : (
                             <Package aria-hidden="true" className="h-8 w-8 text-slate-300" />
                           )}
-                          <span
-                            aria-hidden="true"
-                            className="absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </span>
+                          {isMultiVariant ? (
+                            <>
+                              <span className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-full bg-sky-600/90 backdrop-blur-xs px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
+                                <Layers className="h-3 w-3" />
+                                {group.variants.length}
+                              </span>
+                              <span
+                                aria-hidden="true"
+                                className="absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                              >
+                                <Layers className="h-4 w-4" />
+                              </span>
+                            </>
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className="absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-1 flex-col px-1 pb-0.5 pt-2">
-                          <p className="truncate text-[12px] font-medium text-slate-900">{hit.productName}</p>
-                          <p className="mt-0.5 text-[14px] font-bold tabular-nums text-slate-900">{formatMinor(hit.priceMinor)}</p>
-                          <p className="truncate text-[11px] text-slate-500">{hit.sku}</p>
+                          <p className="truncate text-[12px] font-medium text-slate-900" title={group.productName}>{group.productName}</p>
+                          <p className="mt-0.5 text-[14px] font-bold tabular-nums text-slate-900">{priceText}</p>
+                          <p className="truncate text-[11px] text-slate-500">
+                            {isMultiVariant ? `${group.variants.length} options` : (variantLabel(singleHit) || singleHit.sku)}
+                          </p>
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             <span className={`inline-flex w-fit max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${stock.className}`}>
                               <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${stock.dot}`} />
                               <span className="truncate">{stock.text}</span>
                             </span>
-                            {stock.reservedPill && (
-                              <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700" title="Held for orders or online checkouts">
-                                {stock.reservedPill}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </button>
@@ -1542,7 +1630,10 @@ export function PosTerminal(props: {
                     >
                       {loadingMore ? "Loading…" : "Load more products"}
                     </button>
-                    <span className="text-[12px] text-slate-500">Showing {results.length}</span>
+                    <span className="text-[12px] text-slate-500">
+                      Showing {productGroups.length} {productGroups.length === 1 ? "product" : "products"}
+                      {results.length !== productGroups.length ? ` (${results.length} variants)` : ""}
+                    </span>
                   </div>
                 )}
               </div>
@@ -2773,6 +2864,140 @@ export function PosTerminal(props: {
                 className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-xs font-bold text-white shadow-sm hover:bg-primary-hover"
               >
                 Confirm (Enter ↵)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Variant Selection Modal (matches Reference POS UI) */}
+      {selectedProductVariants && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Select variant for ${selectedProductVariants.productName}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => setSelectedProductVariants(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setSelectedProductVariants(null);
+            }
+          }}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 bg-sky-50/50 px-5 py-3.5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800">
+                <Layers className="h-3.5 w-3.5" />
+                {selectedProductVariants.variants.length} VARIANTS
+              </span>
+              <h2 className="text-base font-bold uppercase tracking-wide text-sky-950 truncate max-w-[260px]">
+                {selectedProductVariants.productName}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setSelectedProductVariants(null)}
+                className="amb-press inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-emerald-700 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+
+            {/* Variant List with Steppers [- 0 +] */}
+            <div className="divide-y divide-slate-100 overflow-y-auto p-3 overscroll-contain max-h-[60vh]">
+              {selectedProductVariants.variants.map((v) => {
+                const inCart = cart.find((l) => l.variantId === v.variantId && l.unitPriceMinor === v.priceMinor);
+                const currentQty = inCart ? inCart.quantity : 0;
+                const stock = stockPill(v.stockQuantity, v.reservedQuantity);
+                const varName = v.size || v.colour || v.sku;
+
+                return (
+                  <div
+                    key={v.variantId}
+                    className={`flex items-center justify-between gap-3 p-3 transition-colors rounded-xl my-1 border ${
+                      currentQty > 0 ? "bg-sky-50/80 border-sky-300 shadow-xs" : "border-slate-100 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-base font-extrabold tabular-nums text-sky-800">
+                          {formatMinor(v.priceMinor)}
+                        </span>
+                        {v.mrpMinor && v.mrpMinor > v.priceMinor && (
+                          <span className="text-xs text-slate-400 line-through tabular-nums">
+                            MRP {formatMinor(v.mrpMinor)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="truncate text-sm font-semibold text-slate-900 mt-0.5">
+                        {varName}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${stock.className}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${stock.dot}`} />
+                          <span className="truncate">{stock.text}</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono truncate">{v.sku}</span>
+                      </div>
+                    </div>
+
+                    {/* Stepper control [- 0 +] */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={currentQty <= 0}
+                        onClick={() => setQuantity(v.variantId, currentQty - 1)}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-100 active:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none"
+                        aria-label={`Decrease ${varName}`}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+
+                      <div className={`flex h-9 min-w-9 px-2 items-center justify-center rounded-lg border text-sm font-bold tabular-nums ${
+                        currentQty > 0 ? "border-sky-400 bg-sky-100/70 text-sky-900" : "border-slate-200 bg-slate-50 text-slate-600"
+                      }`}>
+                        {currentQty}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (currentQty === 0) {
+                            handleScanOrSelect(v);
+                          } else {
+                            setQuantity(v.variantId, currentQty + 1);
+                            playPosBeep("scan");
+                          }
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-600 text-white transition-colors hover:bg-sky-700 active:bg-sky-800 shadow-sm"
+                        aria-label={`Add ${varName}`}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <span className="text-xs font-medium text-slate-600">
+                {cart
+                  .filter((l) => selectedProductVariants.variants.some((v) => v.variantId === l.variantId))
+                  .reduce((sum, l) => sum + l.quantity, 0)}{" "}
+                units added to cart
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedProductVariants(null)}
+                className="amb-press inline-flex h-9 items-center justify-center rounded-lg bg-sky-600 px-5 text-sm font-semibold text-white hover:bg-sky-700 shadow-sm transition-colors"
+              >
+                Select &amp; Close
               </button>
             </div>
           </div>

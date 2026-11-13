@@ -24,7 +24,7 @@ const KINDS: { kind: ImportKind; title: string; hint: string; icon: typeof Users
 
 const BATCH = 200;
 
-type Outcome = { created: number; skipped: number; errors: { row: number; reason: string }[] };
+type Outcome = { created: number; updated: number; skipped: number; errors: { row: number; reason: string }[] };
 
 function downloadText(name: string, text: string) {
   const url = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
@@ -123,7 +123,7 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
 
   async function run() {
     const batchId = crypto.randomUUID();
-    const total: Outcome = { created: 0, skipped: 0, errors: [] };
+    const total: Outcome = { created: 0, updated: 0, skipped: 0, errors: [] };
     setRunning({ done: 0, total: mapped.length });
     for (let i = 0; i < mapped.length; i += BATCH) {
       const rows = mapped.slice(i, i + BATCH);
@@ -137,9 +137,10 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
         if (!res.ok) {
           total.errors.push({ row: i + 2, reason: `Rows ${i + 2}–${i + 1 + rows.length}: ${data?.error?.message ?? "batch failed"}` });
         } else {
-          total.created += data.created;
-          total.skipped += data.skipped;
-          total.errors.push(...data.errors);
+          total.created += data.created ?? 0;
+          total.updated += data.updated ?? 0;
+          total.skipped += data.skipped ?? 0;
+          total.errors.push(...(data.errors ?? []));
         }
       } catch {
         total.errors.push({ row: i + 2, reason: `Rows ${i + 2}–${i + 1 + rows.length}: no connection` });
@@ -340,7 +341,7 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
             <p className="text-sm text-slate-600">
               {missing.length > 0
                 ? `Choose a column for: ${missing.map((f) => f.label).join(", ")}.`
-                : `Ready to import ${body.length.toLocaleString("en-IN")} rows. Rows already here are skipped.`}
+                : `Ready to import ${body.length.toLocaleString("en-IN")} rows. New items will be added; existing items will be updated with new prices, stock & dues.`}
             </p>
             <button
               type="button"
@@ -363,7 +364,7 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
         <Card className="amb-pop-in">
           <CardHeader
             title="Import finished"
-            subtitle={`${result.created.toLocaleString("en-IN")} added · ${result.skipped.toLocaleString("en-IN")} already here (skipped) · ${result.errors.length.toLocaleString("en-IN")} couldn't be imported`}
+            subtitle={`${result.created.toLocaleString("en-IN")} added · ${result.updated.toLocaleString("en-IN")} updated · ${result.skipped.toLocaleString("en-IN")} skipped · ${result.errors.length.toLocaleString("en-IN")} couldn't be imported`}
           />
           {result.errors.length > 0 && (
             <div className="space-y-3 px-5 pb-5">
