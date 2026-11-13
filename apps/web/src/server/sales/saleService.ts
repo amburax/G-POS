@@ -15,6 +15,7 @@ import {
 } from "@/server/sales/saleTotals";
 import { getCustomerDue } from "@/server/sales/customers";
 import { STORE_SCOPE_SELECT, storeScopeOf } from "@/server/sales/storeScope";
+import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
 import { getApparelSlab } from "@/server/tax/taxSettings";
 import { verifyApprovalPin } from "@/server/identity/approvalPin";
 import { findOrCreateCreditAccount } from "@/server/khata/creditAccount";
@@ -271,7 +272,15 @@ export async function createSale(input: CreateSaleInput): Promise<CreateSaleResu
   if (!store) return { status: "forbidden" };
   // Legal company and currency come only from the persisted Store, never the request. An
   // unmapped Store still sells as before; its sales simply carry no scope.
-  const scope = storeScopeOf(store);
+  let scope = storeScopeOf(store);
+  if (!scope && store) {
+    await ensureTenantCompany(input.tenantId, undefined, (store as any).currency || "INR");
+    const refreshed = await db.store.findUnique({
+      where: { id_tenantId: { id: input.storeId, tenantId: input.tenantId } },
+      select: { id: true, ...STORE_SCOPE_SELECT },
+    });
+    if (refreshed) scope = storeScopeOf(refreshed);
+  }
 
   const [cashier, membership, tenant] = await Promise.all([
     db.user.findFirst({

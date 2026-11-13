@@ -6,6 +6,7 @@ import { isIpRateLimited, recordAttempt } from "@/server/identity/loginGuard";
 import { writeAuditLog } from "@/server/identity/audit";
 import { enqueueOutboxEvent } from "@/server/events/outbox";
 import { storeStateOutsideGstin } from "@/lib/gstStates";
+import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
 
 export interface CreateFirstStoreInput {
   sessionToken: string;
@@ -112,6 +113,8 @@ export async function createFirstStore(input: CreateFirstStoreInput): Promise<Cr
         throw new StepAlreadyClaimedError();
       }
 
+      const company = await ensureTenantCompany(session.tenantId, tx, input.currency);
+
       const store = await tx.store.create({
         data: {
           tenantId: session.tenantId,
@@ -125,6 +128,7 @@ export async function createFirstStore(input: CreateFirstStoreInput): Promise<Cr
           state: input.state,
           postalCode: input.postalCode,
           isDefault: true,
+          companyId: company?.id ?? null,
           erpnextProvisionStatus: "NOT_PROVISIONED",
           erpnextWarehouseId: null,
         },

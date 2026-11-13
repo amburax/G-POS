@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { writeAuditLogTx } from "@/server/identity/audit";
 import { enqueueOutboxEvent } from "@/server/events/outbox";
 import { gstStateCode, storeStateOutsideGstin } from "@/lib/gstStates";
+import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
 
 /**
  * Add another store to a business (screen 70). Owner only. The store joins the business's one
@@ -51,11 +52,14 @@ export async function addStore(input: AddStoreInput): Promise<AddStoreResult> {
   const outside = storeStateOutsideGstin(tenant?.taxId, state);
   if (outside) return { status: "validation_error", field: "state", reason: outside };
 
-  const company = await db.company.findFirst({
+  let company = await db.company.findFirst({
     where: { tenantId: input.actor.tenantId },
     orderBy: { createdAt: "asc" },
     select: { id: true, currency: true },
   });
+  if (!company) {
+    company = await ensureTenantCompany(input.actor.tenantId, undefined, "INR");
+  }
   const correlationId = randomUUID();
   try {
     const store = await db.$transaction(async (tx) => {

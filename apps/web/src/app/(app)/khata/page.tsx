@@ -23,6 +23,7 @@ import { getKhataBook, KhataInconsistentError, type KhataBook } from "@/server/k
 import { formatMinor } from "@/server/sales/saleTotals";
 import { CustomerActions } from "../customers/CustomerClient";
 import { KhataBookClient } from "./KhataBookClient";
+import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
 
 /**
  * Customer Due & Khata screen.
@@ -124,7 +125,7 @@ export default async function KhataPage() {
   }
 
   // Resolve store's legal company and currency mapping
-  const store = await db.store.findUnique({
+  let store = await db.store.findUnique({
     where: { id_tenantId: { id: resolved.context.storeId, tenantId: resolved.context.tenantId } },
     select: {
       id: true,
@@ -140,6 +141,27 @@ export default async function KhataPage() {
       },
     },
   });
+
+  // Auto-authorize store under tenant legal company if mapping is missing
+  if (store && (!store.companyId || !store.company)) {
+    await ensureTenantCompany(resolved.context.tenantId, undefined, store.currency);
+    store = await db.store.findUnique({
+      where: { id_tenantId: { id: resolved.context.storeId, tenantId: resolved.context.tenantId } },
+      select: {
+        id: true,
+        name: true,
+        currency: true,
+        companyId: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            currency: true,
+          },
+        },
+      },
+    });
+  }
 
   // If the store has no explicit company/currency mapping, fail closed with a clear unavailable state
   if (!store || !store.companyId || !store.company || !store.currency || store.currency !== store.company.currency) {
