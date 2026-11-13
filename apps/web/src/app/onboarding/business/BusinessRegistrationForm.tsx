@@ -3,7 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { gstinProblem, gstSchemeProblem, type GstScheme } from "@/server/catalog/gstSetup";
+import { gstinProblem, gstSchemeProblem, type GstScheme } from "@/lib/gstValidation";
 
 const BUSINESS_TYPES: { value: string; label: string }[] = [
   { value: "RETAIL", label: "Retail" },
