@@ -17,7 +17,7 @@ import { buttonClass, Card, CardHeader } from "../../_components/ui";
  */
 
 const KINDS: { kind: ImportKind; title: string; hint: string; icon: typeof Users }[] = [
-  { kind: "customers", title: "Customers", hint: "Names, mobiles, email, GSTIN", icon: Users },
+  { kind: "customers", title: "Customers", hint: "Names, mobiles, email, GSTIN, opening Khata dues", icon: Users },
   { kind: "products", title: "Products & stock", hint: "Items, sizes, prices, GST, cost, opening stock", icon: Package },
   { kind: "sales", title: "Past sales", hint: "Old bills, kept as history only", icon: Receipt },
 ];
@@ -27,7 +27,7 @@ const BATCH = 200;
 type Outcome = { created: number; skipped: number; errors: { row: number; reason: string }[] };
 
 function downloadText(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" }));
+  const url = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
@@ -40,6 +40,7 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [table, setTable] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<string, number>>({});
+  const [defaultGst, setDefaultGst] = useState<string>("slab");
   const [smartBusy, setSmartBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
@@ -52,8 +53,18 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
   const missing = fields.filter((f) => f.required && (mapping[f.key] ?? -1) < 0);
 
   const mapped = useMemo(
-    () => body.map((r) => Object.fromEntries(fields.map((f) => [f.key, (mapping[f.key] ?? -1) >= 0 ? (r[mapping[f.key]!] ?? "") : undefined]))),
-    [body, fields, mapping],
+    () =>
+      body.map((r) => {
+        const row = Object.fromEntries(
+          fields.map((f) => [f.key, (mapping[f.key] ?? -1) >= 0 ? (r[mapping[f.key]!] ?? "") : undefined])
+        );
+        // If file lacks GST columns for products, apply the chosen default GST (e.g. Apparel Slab)
+        if (kind === "products" && (mapping.gstType ?? -1) < 0 && (mapping.gstRate ?? -1) < 0 && !row.gstRate) {
+          row.gstType = defaultGst;
+        }
+        return row;
+      }),
+    [body, fields, mapping, kind, defaultGst],
   );
 
   function reset(k: ImportKind) {
@@ -145,7 +156,11 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
       [fields.map((f) => csvCell(f.label)).join(","), fields.map((f) => csvCell(f.example)).join(",")].join("\n"),
     );
 
-  const shownFields = fields.filter((f) => (mapping[f.key] ?? -1) >= 0);
+  const shownFields = fields.filter(
+    (f) =>
+      (mapping[f.key] ?? -1) >= 0 ||
+      (kind === "products" && f.key === "gstType" && (mapping.gstType ?? -1) < 0 && (mapping.gstRate ?? -1) < 0)
+  );
 
   return (
     <div className="space-y-6">
@@ -228,7 +243,7 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
                 <p className="mt-0.5 text-xs text-slate-600">
                   {aiOn
                     ? "Let your AI key inspect headers and sample values to map columns automatically."
-                    : "Add your Anthropic API key in Settings → General (AI card) to enable one-click smart matching."}
+                    : "Automatic column matching is active. Add your Anthropic API key in Settings → General (AI card) to enable LLM auto-mapping."}
                 </p>
               </div>
               {aiOn ? (
@@ -247,6 +262,27 @@ export function ImportClient({ aiOn }: { aiOn: boolean }) {
                 </Link>
               )}
             </div>
+
+            {kind === "products" && (mapping.gstType ?? -1) < 0 && (mapping.gstRate ?? -1) < 0 && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-100 bg-sky-50/80 p-3">
+                <div>
+                  <p className="text-xs font-semibold text-sky-950">Default GST for products (when not in file)</p>
+                  <p className="text-xs text-slate-600">No GST column detected in file. Select the tax slab to apply to imported items.</p>
+                </div>
+                <select
+                  value={defaultGst}
+                  onChange={(e) => setDefaultGst(e.target.value)}
+                  className="amb-focus rounded-md border border-sky-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800"
+                >
+                  <option value="slab">Apparel Slab (5% up to ₹1,000, 12% above)</option>
+                  <option value="5">5% Taxable</option>
+                  <option value="12">12% Taxable</option>
+                  <option value="18">18% Taxable</option>
+                  <option value="nongst">0% / Non-GST</option>
+                </select>
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {fields.map((f) => (
                 <label key={f.key} className="text-sm font-medium text-slate-700">

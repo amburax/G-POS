@@ -23,7 +23,17 @@ export function normalizePhone(raw: string): FieldResult<string> {
   if (!/^[+0-9 ()-]+$/.test(trimmed)) {
     return { ok: false, error: "A mobile number can only contain digits." };
   }
-  const digits = trimmed.replace(/\D/g, "");
+  let digits = trimmed.replace(/\D/g, "");
+
+  while (digits.startsWith("9191")) {
+    digits = digits.slice(2);
+  }
+  if (digits.startsWith("0091")) {
+    digits = digits.slice(4);
+  }
+  if (digits.length === 13 && digits.startsWith("910")) {
+    digits = digits.slice(3);
+  }
 
   let national: string | null = null;
   if (digits.length === 10) national = digits;
@@ -60,16 +70,15 @@ export function formatPhone(phone: string | null | undefined): string {
 }
 
 /**
- * A person's or a business's name: letters (any script), spaces and the punctuation names
- * actually use. Digits are refused — a phone number typed into the name box is the most common
- * counter mistake there is.
+ * A person's or a business's name: letters (any script), numbers, spaces, emojis and the punctuation names
+ * actually use. Pure number strings (phone numbers typed into the name box) are refused.
  */
 export function normalizeName(raw: string): FieldResult<string> {
   const value = raw.trim().replace(/\s+/g, " ");
   if (value.length < 2) return { ok: false, error: "Enter the customer's name (at least 2 letters)." };
   if (value.length > 80) return { ok: false, error: "Keep the name under 80 characters." };
-  if (/\d/.test(value)) return { ok: false, error: "A name cannot contain numbers." };
-  if (!/^[\p{L}\p{M} .'&()-]+$/u.test(value)) {
+  if (!/\p{L}/u.test(value)) return { ok: false, error: "A name cannot contain numbers." };
+  if (!/^[\p{L}\p{M}\p{N}\p{Extended_Pictographic} .'&()#,/+-]+$/u.test(value)) {
     return { ok: false, error: "Use letters, spaces and . ' - & only." };
   }
   return { ok: true, value };

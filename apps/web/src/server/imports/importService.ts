@@ -6,12 +6,16 @@ import { createCustomer } from "@/server/sales/customers";
 import { createProduct, createVariant } from "@/server/catalog/catalogService";
 import { receiveStock } from "@/server/inventory/inventoryService";
 import type { ImportKind } from "@/server/imports/importFields";
+import { normalizePhone } from "@/lib/customerFields";
+import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
+import { findOrCreateCreditAccount } from "@/server/khata/creditAccount";
 
 /**
  * Moving in from another software (owner only).
  *
  * - **Customers** are added; one with a mobile already on file is left as it is (counted "already here").
- * - **Products & stock** are grouped by product name into products with size/colour variants; an
+ *   Opening dues from previous software (AmountDue / balance) are recorded directly into Khata.
+ * - **Products & stock** are grouped by product name into products with size/variant/colour; an
  *   SKU that already exists is skipped, so re-running a file never doubles anything. Opening stock
  *   is received through the stock ledger with its cost, keyed per batch + SKU.
  *   GST is taken only from the file: a GST % makes it taxable at that rate; "nil" / "non-gst" /
@@ -115,22 +119,140 @@ function skuPart(text: string, max: number): string {
   return text.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "").toUpperCase().slice(0, max);
 }
 
-async function importCustomers(actor: Actor, rows: ImportRow[], first: number): Promise<ImportOutcome> {
+async function importCustomers(
+  actor: Actor,
+  storeId: string,
+  batchId: string,
+  rows: ImportRow[],
+  first: number
+): Promise<ImportOutcome> {
   const out: ImportOutcome = { created: 0, skipped: 0, errors: [] };
+  let company: { id: string; currency: string } | null = null;
+  try {
+    if (typeof ensureTenantCompany === "function") {
+      company = await ensureTenantCompany(actor.tenantId, undefined, "INR");
+    }
+  } catch {
+    // If company lookup fails, customer creation still proceeds
+  }
+
   for (const [i, row] of rows.entries()) {
+    const rawName = row.name?.trim() || "";
+    const rawPhone = row.phone?.trim() || null;
+    const rawEmail = row.email?.trim() || null;
+    const rawGstin = row.gstin?.trim() || null;
+    const rawAddress = row.address?.trim() || null;
+    const due = money(row.amountDue);
+
+    // Smart phone normalization: lenient for duplicate country codes / export formats
+    let phoneToUse: string | null = rawPhone;
+    if (phoneToUse) {
+      const pRes = normalizePhone(phoneToUse);
+      if (pRes.ok) {
+        phoneToUse = pRes.value;
+      } else {
+        const digits = phoneToUse.replace(/\D/g, "");
+        if (digits.length >= 10) {
+          const last10 = digits.slice(-10);
+          const p10Res = normalizePhone(last10);
+          if (p10Res.ok) phoneToUse = p10Res.value;
+        }
+      }
+    }
+
+    // Name fallback: if name is empty but phone exists, derive readable customer name
+    let name = rawName;
+    if (!name) {
+      if (phoneToUse) {
+        const lastDigits = phoneToUse.replace(/\D/g, "").slice(-5);
+        name = `Customer ${lastDigits}`;
+      } else {
+        out.errors.push({ row: first + i, reason: "Name is empty and no mobile number provided." });
+        continue;
+      }
+    }
+
     const res = await createCustomer({
       tenantId: actor.tenantId,
-      name: row.name ?? "",
-      phone: row.phone || null,
-      email: row.email || null,
-      gstin: row.gstin || null,
+      name,
+      phone: phoneToUse,
+      email: rawEmail,
+      gstin: rawGstin,
+      address: rawAddress
+        ? {
+            line1: rawAddress.slice(0, 80),
+            city: "City",
+            postalCode: "360001",
+          }
+        : undefined,
       actorUserId: actor.userId,
     });
+
     if (res.status === "ok") {
       if (res.existing) out.skipped++;
       else out.created++;
+
+      // If customer has an opening balance/due from old software, record in Khata
+      if (company && due !== null && !Number.isNaN(due) && due > 0 && db?.sale?.create && db?.khataReceivableEntry?.create) {
+        try {
+          const customerId = res.customer.id;
+          const openingSaleNumber = `OPENING-${customerId.slice(-8).toUpperCase()}`;
+          const existingOpeningSale = await db.sale.findFirst({
+            where: { tenantId: actor.tenantId, customerId, billNumber: openingSaleNumber },
+            select: { id: true },
+          });
+
+          if (!existingOpeningSale) {
+            const sale = await db.sale.create({
+              data: {
+                tenantId: actor.tenantId,
+                storeId,
+                companyId: company.id,
+                currencySnapshot: company.currency,
+                customerId,
+                billNumber: openingSaleNumber,
+                status: "COMPLETED",
+                completedAt: new Date(),
+                totalMinor: due,
+                paidMinor: 0,
+                initialOnAccountMinor: due,
+                paymentMethod: "CREDIT",
+                notes: "Opening balance imported from old software",
+                subtotalMinor: due,
+                taxTotalMinor: 0,
+                roundOffMinor: 0,
+              },
+            });
+
+            const creditAccount = await findOrCreateCreditAccount(db, {
+              tenantId: actor.tenantId,
+              companyId: company.id,
+              customerId,
+            });
+
+            await db.khataReceivableEntry.create({
+              data: {
+                tenantId: actor.tenantId,
+                companyId: company.id,
+                customerId,
+                currency: company.currency,
+                saleId: sale.id,
+                creditAccountId: creditAccount.id,
+                entryType: "DEBIT_CREDIT_SALE",
+                amountMinor: due,
+                idempotencyKey: `opening-bal-${customerId}-${batchId}`,
+              },
+            });
+          }
+        } catch {
+          // Opening balance shouldn't fail the customer creation itself
+        }
+      }
     } else {
-      out.errors.push({ row: first + i, reason: res.status === "validation_error" ? `${res.field}: ${res.error}` : "Name isn't valid." });
+      out.errors.push({
+        row: first + i,
+        reason: res.status === "validation_error" ? `${res.field}: ${res.error}` : "Name isn't valid.",
+      });
     }
   }
   return out;
@@ -162,11 +284,11 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
       out.errors.push({ row: n, reason: "Product name is empty." });
       continue;
     }
-    if (price === null || Number.isNaN(price) || price <= 0) {
+    if (price === null || Number.isNaN(price) || price < 0) {
       out.errors.push({ row: n, reason: "Selling price is missing or not a number." });
       continue;
     }
-    if (Number.isNaN(cost) || Number.isNaN(stock) || (stock !== null && stock < 0)) {
+    if (Number.isNaN(cost) || Number.isNaN(stock)) {
       out.errors.push({ row: n, reason: "Cost or opening stock isn't a valid number." });
       continue;
     }
@@ -193,11 +315,18 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
       out.errors.push({ row: n, reason: "Give this row a GST % (like 5) or a GST type (non-GST, nil, zero or slab)." });
       continue;
     }
-    const size = row.size?.trim() || null;
+    const variantDesc = row.variant?.trim() || null;
+    const size = row.size?.trim() || variantDesc || null;
     const colour = row.colour?.trim() || null;
     const sku =
       row.sku?.trim() ||
-      [skuPart(name, 10) || "ITEM", size ? skuPart(size, 6) : null, colour ? skuPart(colour, 6) : null, batchId.slice(0, 4).toUpperCase()]
+      [
+        skuPart(name, 10) || "ITEM",
+        variantDesc ? skuPart(variantDesc, 8) : null,
+        size && size !== variantDesc ? skuPart(size, 6) : null,
+        colour ? skuPart(colour, 6) : null,
+        batchId.slice(0, 4).toUpperCase(),
+      ]
         .filter(Boolean)
         .join("-");
     const existing = await db.productVariant.findFirst({ where: { tenantId: actor.tenantId, sku }, select: { id: true } });
@@ -255,12 +384,13 @@ async function importProducts(actor: Actor, storeId: string, batchId: string, ro
       variantId = p.variantId;
     }
     productIdByName.set(key, productId);
-    if (stock && stock > 0) {
+    const effectiveStock = stock !== null && stock > 0 ? stock : 0;
+    if (effectiveStock > 0) {
       const r = await receiveStock({
         actor,
         storeId,
         variantId,
-        quantity: stock,
+        quantity: effectiveStock,
         reason: "Opening stock (imported)",
         requestKey: `import:${batchId}:${sku}`,
         correlationId,
@@ -345,7 +475,7 @@ export async function runImport(input: {
   }
   const outcome =
     input.kind === "customers"
-      ? await importCustomers(input.actor, input.rows, input.firstRowNumber)
+      ? await importCustomers(input.actor, input.storeId, input.batchId, input.rows, input.firstRowNumber)
       : input.kind === "products"
         ? await importProducts(input.actor, input.storeId, input.batchId, input.rows, input.firstRowNumber)
         : await importSales(input.actor, input.storeId, input.batchId, input.rows, input.firstRowNumber);

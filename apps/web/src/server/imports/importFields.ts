@@ -17,16 +17,17 @@ export interface ImportField {
 
 export const IMPORT_FIELDS: Record<ImportKind, ImportField[]> = {
   customers: [
-    { key: "name", label: "Name", required: true, aliases: ["name", "customer", "customer name", "party", "party name", "client"], example: "Asha Rao" },
-    { key: "phone", label: "Mobile", aliases: ["phone", "mobile", "mobile no", "mobile number", "contact", "contact no", "whatsapp", "phone number"], example: "9876543210" },
-    { key: "email", label: "Email", aliases: ["email", "e-mail", "mail", "email id"], example: "asha@example.com" },
+    { key: "name", label: "Name", required: true, aliases: ["name", "customer", "customer name", "party", "party name", "client", "contact name", "customer_name"], example: "Asha Rao" },
+    { key: "phone", label: "Mobile", aliases: ["phone", "mobile", "mobile no", "mobile number", "contact", "contact no", "whatsapp", "phone number", "cell", "phone_number"], example: "9876543210" },
+    { key: "email", label: "Email", aliases: ["email", "e-mail", "mail", "email id", "email_id"], example: "asha@example.com" },
+    { key: "address", label: "Address", aliases: ["address", "addr", "street", "city", "location", "billing address"], example: "Station Road, Surat" },
+    { key: "amountDue", label: "Opening Khata Due", aliases: ["amountdue", "amount due", "due", "balance", "opening balance", "udhar", "khata balance", "receivable", "dues", "amount held advance"], example: "1200" },
     { key: "gstin", label: "GSTIN", aliases: ["gstin", "gst", "gst no", "gst number", "gstin/uin"], example: "" },
   ],
   products: [
-    { key: "name", label: "Product name", required: true, aliases: ["name", "product", "product name", "item", "item name", "description", "article"], example: "Cotton Kurta" },
-    { key: "sku", label: "SKU / item code", aliases: ["sku", "code", "item code", "product code", "style", "style no", "article no"], example: "KUR-M-BLU" },
-    { key: "barcode", label: "Barcode", aliases: ["barcode", "ean", "upc", "bar code"], example: "8901234567890" },
-    { key: "size", label: "Size", aliases: ["size"], example: "M" },
+    { key: "name", label: "Product name", required: true, aliases: ["name", "product", "product name", "item", "item name", "description", "article", "item_name"], example: "Cotton Kurta" },
+    { key: "variant", label: "Variant / Style", aliases: ["variant", "variant name", "variant_name", "item variant", "option", "style", "sub item"], example: "Hosiery 23XL" },
+    { key: "size", label: "Size", aliases: ["size", "sizes"], example: "M" },
     { key: "colour", label: "Colour", aliases: ["colour", "color", "shade"], example: "Blue" },
     { key: "brand", label: "Brand", aliases: ["brand", "company", "make"], example: "" },
     { key: "category", label: "Category", aliases: ["category", "group", "item group", "department"], example: "Kurtas" },
@@ -36,8 +37,10 @@ export const IMPORT_FIELDS: Record<ImportKind, ImportField[]> = {
     { key: "hsn", label: "HSN code", aliases: ["hsn", "hsn code", "hsn/sac", "hsn sac", "sac"], example: "62052000" },
     { key: "exemptionRef", label: "Exemption reference", aliases: ["exemption reference", "exemption ref", "exemption notification", "exemption", "notification"], example: "" },
     { key: "gstRate", label: "GST %", aliases: ["gst %", "gst rate", "tax %", "tax rate", "gst", "igst %"], example: "5" },
-    { key: "cost", label: "Cost (excl. GST)", aliases: ["cost", "purchase price", "cost price", "pp", "purchase rate"], example: "550" },
+    { key: "cost", label: "Cost (excl. GST)", aliases: ["cost", "purchase price", "cost price", "pp", "purchase rate", "cost_price"], example: "550" },
     { key: "stock", label: "Opening stock", aliases: ["stock", "qty", "quantity", "closing stock", "opening stock", "balance", "current stock", "in stock"], example: "12" },
+    { key: "sku", label: "SKU / item code", aliases: ["sku", "code", "item code", "product code", "style", "style no", "article no"], example: "KUR-M-BLU" },
+    { key: "barcode", label: "Barcode", aliases: ["barcode", "ean", "upc", "bar code"], example: "8901234567890" },
   ],
   sales: [
     { key: "billNumber", label: "Bill number", required: true, aliases: ["bill no", "bill number", "invoice no", "invoice number", "voucher no", "bill", "invoice"], example: "INV-1023" },
