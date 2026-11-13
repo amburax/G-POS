@@ -645,7 +645,10 @@ export function PosTerminal(props: {
       ];
     });
     setQuery("");
-    searchInput.current?.focus();
+    // Dismiss virtual keyboard if searchInput had focus, and avoid auto-focusing on product click
+    if (typeof document !== "undefined" && document.activeElement === searchInput.current) {
+      searchInput.current?.blur();
+    }
   }, []);
 
   const handleScanOrSelect = useCallback((hit: CatalogHit) => {
@@ -900,7 +903,9 @@ export function PosTerminal(props: {
     setCartNotice(null);
     setQuery("");
     idempotencyKey.current = crypto.randomUUID();
-    searchInput.current?.focus();
+    if (typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) {
+      searchInput.current?.focus();
+    }
   }
 
   /**
@@ -1317,7 +1322,9 @@ export function PosTerminal(props: {
                         aria-label="Clear product search"
                         onClick={() => {
                           setQuery("");
-                          searchInput.current?.focus();
+                          if (typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) {
+                            searchInput.current?.focus();
+                          }
                         }}
                         className="absolute right-2 top-1/2 flex min-h-11 min-w-11 lg:h-7 lg:w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600"
                       >
