@@ -144,6 +144,7 @@ async function importCustomers(
     const rawGstin = row.gstin?.trim() || null;
     const rawAddress = row.address?.trim() || null;
     const due = money(row.amountDue);
+    const advance = money(row.amountHeld);
 
     // Smart phone normalization: lenient for duplicate country codes / export formats
     let phoneToUse: string | null = rawPhone;
@@ -283,6 +284,43 @@ async function importCustomers(
           }
         } catch {
           // Opening balance shouldn't fail the customer creation itself
+        }
+      }
+
+      // If customer has an advance deposit/credit (AmountHeld) from old software, record in Khata
+      if (company && advance !== null && !Number.isNaN(advance) && advance > 0 && db?.khataPayment?.create) {
+        try {
+          const customerId = res.customer.id;
+          const creditAccount = await findOrCreateCreditAccount(db, {
+            tenantId: actor.tenantId,
+            companyId: company.id,
+            customerId,
+          });
+
+          const paymentKey = `opening-adv-${customerId}-${batchId}`;
+          const existingPayment = await db.khataPayment.findUnique({
+            where: { idempotencyKey: paymentKey },
+            select: { id: true, amountMinor: true },
+          });
+
+          if (!existingPayment) {
+            await db.khataPayment.create({
+              data: {
+                tenantId: actor.tenantId,
+                companyId: company.id,
+                customerId,
+                creditAccountId: creditAccount.id,
+                currency: company.currency,
+                actorUserId: actor.userId,
+                amountMinor: advance,
+                paymentMethod: "CASH",
+                notes: "Opening advance deposit (Jama) imported from old software",
+                idempotencyKey: paymentKey,
+              },
+            });
+          }
+        } catch {
+          // Advance balance shouldn't fail the customer creation itself
         }
       }
     } else {

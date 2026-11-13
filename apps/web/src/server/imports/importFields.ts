@@ -21,7 +21,8 @@ export const IMPORT_FIELDS: Record<ImportKind, ImportField[]> = {
     { key: "phone", label: "Mobile", aliases: ["phone", "mobile", "mobile no", "mobile number", "contact", "contact no", "whatsapp", "phone number", "cell", "phone_number"], example: "9876543210" },
     { key: "email", label: "Email", aliases: ["email", "e-mail", "mail", "email id", "email_id"], example: "asha@example.com" },
     { key: "address", label: "Address", aliases: ["address", "addr", "street", "city", "location", "billing address"], example: "Station Road, Surat" },
-    { key: "amountDue", label: "Opening Khata Due", aliases: ["amountdue", "amount due", "due", "balance", "opening balance", "udhar", "khata balance", "receivable", "dues", "amount held advance"], example: "1200" },
+    { key: "amountDue", label: "Opening Khata Due (Udhar)", aliases: ["amountdue", "amount due", "due", "balance", "opening balance", "udhar", "khata balance", "receivable", "dues", "debit"], example: "1200" },
+    { key: "amountHeld", label: "Opening Advance (Jama)", aliases: ["amountheld", "amount held", "advance", "amountheld (advance)", "amount held (advance)", "jama", "deposit", "credit balance", "advance balance"], example: "500" },
     { key: "gstin", label: "GSTIN", aliases: ["gstin", "gst", "gst no", "gst number", "gstin/uin"], example: "" },
   ],
   products: [
