@@ -1373,13 +1373,13 @@ export function PosTerminal(props: {
                       <button
                         type="button"
                         aria-label="Clear product search"
+                        className="absolute right-2 top-1/2 flex min-h-11 min-w-11 lg:h-7 lg:w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600"
                         onClick={() => {
                           setQuery("");
                           if (typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches) {
                             searchInput.current?.focus();
                           }
                         }}
-                        className="absolute right-2 top-1/2 flex min-h-11 min-w-11 lg:h-7 lg:w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -1492,7 +1492,7 @@ export function PosTerminal(props: {
                   </div>
                 )}
                 {searching && results.length === 0 && (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3" aria-hidden="true">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3" aria-hidden="true">
                     {Array.from({ length: 10 }).map((_, i) => (
                       <div key={i} className="amb-skeleton flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5">
                         <div className="aspect-square w-full bg-slate-100" />
@@ -1537,7 +1537,7 @@ export function PosTerminal(props: {
                   </div>
                 )}
 
-                <div className={`grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3 transition-opacity duration-150 ${searching && results.length > 0 ? "opacity-60" : ""}`} aria-busy={searching}>
+                <div className={`grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 transition-opacity duration-150 ${searching && results.length > 0 ? "opacity-60" : ""}`} aria-busy={searching}>
                   {productGroups.map((group, i) => {
                     const isMultiVariant = group.variants.length > 1;
                     const singleHit = group.variants[0];

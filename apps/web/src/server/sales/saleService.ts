@@ -275,10 +275,17 @@ export async function createSale(input: CreateSaleInput): Promise<CreateSaleResu
   let scope = storeScopeOf(store);
   if (!scope && store) {
     await ensureTenantCompany(input.tenantId, undefined, (store as any).currency || "INR");
-    const refreshed = await db.store.findUnique({
-      where: { id_tenantId: { id: input.storeId, tenantId: input.tenantId } },
-      select: { id: true, ...STORE_SCOPE_SELECT },
-    });
+    const refreshed = typeof db.store?.findUnique === "function"
+      ? await db.store.findUnique({
+          where: { id_tenantId: { id: input.storeId, tenantId: input.tenantId } },
+          select: { id: true, ...STORE_SCOPE_SELECT },
+        })
+      : (typeof db.store?.findFirst === "function"
+        ? await db.store.findFirst({
+            where: { id: input.storeId, tenantId: input.tenantId },
+            select: { id: true, ...STORE_SCOPE_SELECT },
+          })
+        : null);
     if (refreshed) scope = storeScopeOf(refreshed);
   }
 

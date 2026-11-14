@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 html {
-  zoom: 1.03;
-  -moz-transform: scale(1.03);
+  zoom: 0.97;
+  -moz-transform: scale(0.97);
   -moz-transform-origin: 0 0;
 }
 
