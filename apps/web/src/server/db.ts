@@ -7,7 +7,23 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-export const db = globalThis.__prisma ?? new PrismaClient();
+function createPrismaClient(): PrismaClient {
+  const client = new PrismaClient();
+  const origTransaction = client.$transaction.bind(client);
+  client.$transaction = function (arg: any, options?: any) {
+    if (typeof arg === "function") {
+      return origTransaction(arg, {
+        maxWait: 10000,
+        timeout: 30000,
+        ...options,
+      });
+    }
+    return origTransaction(arg, options);
+  } as typeof client.$transaction;
+  return client;
+}
+
+export const db = globalThis.__prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.__prisma = db;

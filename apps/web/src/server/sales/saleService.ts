@@ -121,7 +121,7 @@ export interface CreateSaleInput {
 
 /** Run `fn` in the caller's transaction when there is one, otherwise in a new one. */
 function inTransaction<T>(tx: Prisma.TransactionClient | undefined, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  return tx ? fn(tx) : db.$transaction(fn);
+  return tx ? fn(tx) : db.$transaction(fn, { maxWait: 10000, timeout: 30000 });
 }
 
 export type CreateSaleResult =
