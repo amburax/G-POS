@@ -1,4 +1,5 @@
 import { db } from "@/server/db";
+import { getCustomerDue } from "@/server/sales/customers";
 import { requireCompany, erpDate } from "@/server/erp/documentSync";
 import { ErpClient } from "@/server/erp/client";
 import { resolveErpEnvironment, EnvErpCredentialProvider } from "@/server/erp/config";
@@ -133,38 +134,69 @@ export class ErpKhataService {
     }
 
     const envResult = await resolveErpEnvironment(params.tenantId);
-    if (envResult.status !== "ok") {
-      return {
-        customerId: customer.id,
-        customerName: customer.name,
-        phone: customer.phone,
-        erpCustomerName: null,
-        totalDueMinor: 0,
-        overdueMinor: 0,
-        daysPending: 0,
-        invoicesCount: 0,
-        invoices: [],
-      };
+    let erpCustomerName: string | null = null;
+    if (envResult.status === "ok") {
+      erpCustomerName = await this.resolveErpCustomerName(
+        envResult.environment,
+        params.tenantId,
+        params.customerId,
+        correlationId
+      );
     }
 
-    const erpCustomerName = await this.resolveErpCustomerName(
-      envResult.environment,
-      params.tenantId,
-      params.customerId,
-      correlationId
-    );
+    if (!erpCustomerName || envResult.status !== "ok") {
+      const localDueMinor = await getCustomerDue({ tenantId: params.tenantId, customerId: params.customerId });
+      const localSales = await db.sale.findMany({
+        where: {
+          tenantId: params.tenantId,
+          customerId: params.customerId,
+          status: "COMPLETED",
+        },
+        select: {
+          id: true,
+          billNumber: true,
+          totalMinor: true,
+          paidMinor: true,
+          initialOnAccountMinor: true,
+          completedAt: true,
+          dueDateSnapshot: true,
+        },
+        orderBy: { completedAt: "desc" },
+      });
 
-    if (!erpCustomerName) {
+      const openSales = localSales.filter((s) => s.totalMinor > s.paidMinor);
+      const now = Date.now();
+      let maxDays = 0;
+      let overdueMinor = 0;
+      const invoices: OutstandingInvoice[] = openSales.map((s) => {
+        const outstandingMinor = s.totalMinor - s.paidMinor;
+        const days = Math.max(0, Math.floor((now - s.completedAt.getTime()) / (24 * 3600 * 1000)));
+        if (days > maxDays) maxDays = days;
+        if (s.dueDateSnapshot && s.dueDateSnapshot.getTime() < now) {
+          overdueMinor += outstandingMinor;
+        }
+        return {
+          name: s.billNumber,
+          customer: customer.name,
+          outstandingAmount: outstandingMinor / 100,
+          grandTotal: s.totalMinor / 100,
+          postingDate: s.completedAt.toISOString().slice(0, 10),
+          dueDate: s.dueDateSnapshot ? s.dueDateSnapshot.toISOString().slice(0, 10) : s.completedAt.toISOString().slice(0, 10),
+          status: s.dueDateSnapshot && s.dueDateSnapshot.getTime() < now ? "Overdue" : "Unpaid",
+          daysPending: days,
+        };
+      });
+
       return {
         customerId: customer.id,
         customerName: customer.name,
         phone: customer.phone,
         erpCustomerName: null,
-        totalDueMinor: 0,
-        overdueMinor: 0,
-        daysPending: 0,
-        invoicesCount: 0,
-        invoices: [],
+        totalDueMinor: localDueMinor,
+        overdueMinor: overdueMinor > 0 ? overdueMinor : (maxDays > 30 ? localDueMinor : 0),
+        daysPending: maxDays,
+        invoicesCount: invoices.length,
+        invoices,
       };
     }
 

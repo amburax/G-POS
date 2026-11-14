@@ -128,6 +128,11 @@ export default async function CustomerProfilePage(props: { params: Promise<{ id:
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                 <SegmentPill segment={customer.customerType} />
                 <ActiveDot active={customer.isActive} />
+                {customer.dueMinor > 0 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+                    Udhar {formatMinor(customer.dueMinor)}
+                  </span>
+                )}
                 <span aria-hidden="true" className="text-slate-300">•</span>
                 <span>Customer since {formatDateOnly(customer.createdAt)}</span>
               </div>

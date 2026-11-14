@@ -133,9 +133,11 @@ export interface KhataInconsistency {
 
 /** Stored balances cannot be reconciled; nothing is shown rather than a clamped figure. */
 export class KhataInconsistentError extends Error {
-  constructor(readonly issues: KhataInconsistency[]) {
+  readonly issues: KhataInconsistency[];
+  constructor(issues: KhataInconsistency[]) {
     super(`Khata balances inconsistent (${issues.length} issue${issues.length === 1 ? "" : "s"})`);
     this.name = "KhataInconsistentError";
+    this.issues = issues;
   }
 }
 

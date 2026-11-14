@@ -173,6 +173,11 @@ export function CustomerDetailPanel({
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <SegmentPill segment={detail.customerType} />
                 <ActiveDot active={detail.isActive} />
+                {(detail.dueMinor ?? 0) > 0 && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-bold text-amber-900 border border-amber-200">
+                    Udhar {formatMinor(detail.dueMinor)}
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-[11px] text-tertiary">Member since {formatDateOnly(detail.createdAt)}</p>
             </div>
@@ -201,15 +206,16 @@ export function CustomerDetailPanel({
           </ul>
 
           {/* Figures */}
-          <dl className="grid grid-cols-3 gap-2 px-4">
+          <dl className={`grid ${(detail.dueMinor ?? 0) > 0 ? "grid-cols-2" : "grid-cols-3"} gap-2 px-4`}>
             {[
+              ...((detail.dueMinor ?? 0) > 0 ? [{ label: "Pending Udhar (Due)", value: formatMinor(detail.dueMinor), highlight: true }] : []),
               { label: "Total Purchases", value: detail.purchaseCount.toLocaleString("en-IN") },
               { label: "Total Spend", value: formatMinor(detail.totalSpentMinor).replace(/\.00$/, "") },
               { label: "Avg. Order Value", value: avgOrderMinor !== null ? formatMinor(avgOrderMinor).replace(/\.00$/, "") : "—" },
             ].map((f, i) => (
-              <div key={f.label} className="cust-rise min-w-0 rounded-lg border border-border px-2.5 py-2" style={{ ["--i" as string]: i }}>
-                <dt className="truncate text-[11px] text-tertiary">{f.label}</dt>
-                <dd className="mt-0.5 truncate text-[16px] font-bold tabular-nums text-primary">{f.value}</dd>
+              <div key={f.label} className={`cust-rise min-w-0 rounded-lg border px-2.5 py-2 ${"highlight" in f && f.highlight ? "border-amber-300 bg-amber-50/70" : "border-border"}`} style={{ ["--i" as string]: i }}>
+                <dt className={`truncate text-[11px] ${"highlight" in f && f.highlight ? "font-semibold text-amber-800" : "text-tertiary"}`}>{f.label}</dt>
+                <dd className={`mt-0.5 truncate text-[16px] font-bold tabular-nums ${"highlight" in f && f.highlight ? "text-amber-900" : "text-primary"}`}>{f.value}</dd>
               </div>
             ))}
           </dl>
@@ -301,16 +307,37 @@ export function CustomerDetailPanel({
 
             {tab === "khata" && (
               <div className="space-y-3">
-                <div className="rounded-lg border border-border bg-background-subtle p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[13px] font-semibold text-primary">Outstanding balance</p>
-                    <NotConnectedChip />
+                {detail.dueMinor > 0 ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-amber-900">Pending Udhar (Due)</p>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+                        {formatMinor(detail.dueMinor)}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-amber-800">
+                      Active pending balance from opening khata / credit sales.
+                    </p>
+                    <Link
+                      href={`/khata?q=${encodeURIComponent(detail.name)}`}
+                      className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-700"
+                    >
+                      Open in Khata Book <ArrowRight aria-hidden="true" className="h-3 w-3" />
+                    </Link>
                   </div>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-secondary">
-                    Khata balances and payment history come from the accounting sync. Nothing is shown until it is
-                    connected — never an estimate.
-                  </p>
-                </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-background-subtle p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-primary">Outstanding balance</p>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        No due (₹0.00)
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-secondary">
+                      All accounts and past bills for this customer are fully cleared.
+                    </p>
+                  </div>
+                )}
                 <div className="rounded-lg border border-border p-3">
                   <p className="text-[13px] font-semibold text-primary">Credit terms</p>
                   {hasTerms ? (

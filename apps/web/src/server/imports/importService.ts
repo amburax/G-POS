@@ -9,6 +9,7 @@ import type { ImportKind } from "@/server/imports/importFields";
 import { normalizePhone } from "@/lib/customerFields";
 import { ensureTenantCompany } from "@/server/tenant/tenantCompany";
 import { findOrCreateCreditAccount } from "@/server/khata/creditAccount";
+import { logError } from "@/lib/safeLog";
 
 /**
  * Moving in from another software (owner only).
@@ -224,6 +225,73 @@ async function importCustomers(
             select: { id: true, totalMinor: true },
           });
 
+          // Ensure customerCreditAccount exists and credit is enabled
+          let creditAccount: { id: string; creditMode?: unknown; creditEnabled?: boolean } | null = null;
+          try {
+            if (typeof findOrCreateCreditAccount === "function") {
+              creditAccount = await findOrCreateCreditAccount(db, {
+                tenantId: actor.tenantId,
+                companyId: company.id,
+                customerId,
+              });
+            }
+          } catch {
+            // direct DB fallback if needed
+          }
+
+          if (!creditAccount && db?.customerCreditAccount?.findUnique) {
+            creditAccount = await db.customerCreditAccount.findUnique({
+              where: {
+                tenantId_companyId_customerId: {
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                },
+              },
+            });
+            if (!creditAccount && db?.customerCreditAccount?.create) {
+              creditAccount = await db.customerCreditAccount.create({
+                data: {
+                  id: `cca_${randomUUID().replace(/-/g, "")}`,
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                  currency: company.currency,
+                  creditMode: "UNLIMITED",
+                  creditModeLimitMinor: null,
+                  creditModeSource: "OWNER_OVERRIDE",
+                  creditEnabled: true,
+                  creditHold: false,
+                },
+              });
+            }
+          }
+
+          if (creditAccount && (creditAccount.creditMode === "BLOCKED" || !creditAccount.creditEnabled) && db?.customerCreditAccount?.update) {
+            try {
+              await db.customerCreditAccount.update({
+                where: { id: creditAccount.id },
+                data: { creditMode: "UNLIMITED", creditEnabled: true, creditHold: false },
+              });
+            } catch {
+              // Ignore non-critical update failure
+            }
+          }
+
+          // Also set creditEnabled on Customer table
+          if (db?.customer?.update) {
+            try {
+              await db.customer.update({
+                where: { id: customerId },
+                data: { creditEnabled: true },
+              });
+            } catch {
+              // Ignore non-critical update failure
+            }
+          }
+
+          const creditAccountId = creditAccount?.id || `cca_${customerId}`;
+
           if (!existingOpeningSale) {
             const sale = await db.sale.create({
               data: {
@@ -233,23 +301,17 @@ async function importCustomers(
                 currencySnapshot: company.currency,
                 customerId,
                 billNumber: openingSaleNumber,
+                cashierUserId: actor.userId,
+                idempotencyKey: `opening-sale-${customerId}`,
                 status: "COMPLETED",
                 completedAt: new Date(),
                 totalMinor: due,
                 paidMinor: 0,
                 initialOnAccountMinor: due,
-                paymentMethod: "CREDIT",
-                notes: "Opening balance imported from old software",
                 subtotalMinor: due,
-                taxTotalMinor: 0,
-                roundOffMinor: 0,
+                discountMinor: 0,
+                taxMinor: 0,
               },
-            });
-
-            const creditAccount = await findOrCreateCreditAccount(db, {
-              tenantId: actor.tenantId,
-              companyId: company.id,
-              customerId,
             });
 
             await db.khataReceivableEntry.create({
@@ -259,14 +321,16 @@ async function importCustomers(
                 customerId,
                 currency: company.currency,
                 saleId: sale.id,
-                creditAccountId: creditAccount.id,
+                creditAccountId,
                 entryType: "DEBIT_CREDIT_SALE",
                 amountMinor: due,
-                idempotencyKey: `opening-bal-${customerId}-${batchId}`,
+                actorUserId: actor.userId,
+                notes: "Opening balance imported from old software",
+                idempotencyKey: `opening-recv-${customerId}`,
               },
             });
           } else if (existingOpeningSale.totalMinor !== due && db?.sale?.update) {
-            // Update opening due if modified in re-imported file
+            const diff = due - existingOpeningSale.totalMinor;
             await db.sale.update({
               where: { id: existingOpeningSale.id },
               data: {
@@ -275,41 +339,108 @@ async function importCustomers(
                 initialOnAccountMinor: due,
               },
             });
-            if (db?.khataReceivableEntry?.updateMany) {
-              await db.khataReceivableEntry.updateMany({
-                where: { saleId: existingOpeningSale.id, tenantId: actor.tenantId },
-                data: { amountMinor: due },
+            // Khata ledger is append-only (PostgreSQL triggers prohibit UPDATE and DELETE)
+            if (diff > 0) {
+              await db.khataReceivableEntry.create({
+                data: {
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                  currency: company.currency,
+                  saleId: existingOpeningSale.id,
+                  creditAccountId,
+                  entryType: "DEBIT_CREDIT_SALE",
+                  amountMinor: diff,
+                  actorUserId: actor.userId,
+                  notes: "Opening balance adjustment from re-import",
+                  idempotencyKey: `opening-adj-inc-${customerId}-${Date.now()}`,
+                },
+              });
+            } else if (diff < 0) {
+              await db.khataReceivableEntry.create({
+                data: {
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                  currency: company.currency,
+                  saleId: existingOpeningSale.id,
+                  creditAccountId,
+                  entryType: "CREDIT_REVERSAL",
+                  amountMinor: Math.abs(diff),
+                  actorUserId: actor.userId,
+                  notes: "Opening balance reduction adjustment from re-import",
+                  idempotencyKey: `opening-adj-dec-${customerId}-${Date.now()}`,
+                },
               });
             }
           }
-        } catch {
-          // Opening balance shouldn't fail the customer creation itself
+        } catch (balErr) {
+          logError("import: opening due creation failed", balErr);
+          out.errors.push({
+            row: first + i,
+            reason: `Customer was saved, but opening due of ₹${(due / 100).toLocaleString("en-IN")} failed to post.`,
+          });
         }
       }
 
       // If customer has an advance deposit/credit (AmountHeld) from old software, record in Khata
       if (company && advance !== null && !Number.isNaN(advance) && advance > 0 && db?.khataPayment?.create) {
         try {
-          const customerId = res.customer.id;
-          const creditAccount = await findOrCreateCreditAccount(db, {
-            tenantId: actor.tenantId,
-            companyId: company.id,
-            customerId,
-          });
+          let advCreditAccount: { id: string } | null = null;
+          try {
+            if (typeof findOrCreateCreditAccount === "function") {
+              advCreditAccount = await findOrCreateCreditAccount(db, {
+                tenantId: actor.tenantId,
+                companyId: company.id,
+                customerId,
+              });
+            }
+          } catch {
+            // fallback
+          }
 
-          const paymentKey = `opening-adv-${customerId}-${batchId}`;
+          if (!advCreditAccount && db?.customerCreditAccount?.findUnique) {
+            advCreditAccount = await db.customerCreditAccount.findUnique({
+              where: {
+                tenantId_companyId_customerId: {
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                },
+              },
+            });
+            if (!advCreditAccount && db?.customerCreditAccount?.create) {
+              advCreditAccount = await db.customerCreditAccount.create({
+                data: {
+                  id: `cca_${randomUUID().replace(/-/g, "")}`,
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                  currency: company.currency,
+                  creditMode: "UNLIMITED",
+                  creditModeLimitMinor: null,
+                  creditModeSource: "OWNER_OVERRIDE",
+                  creditEnabled: true,
+                  creditHold: false,
+                },
+              });
+            }
+          }
+
+          const advCreditAccountId = advCreditAccount?.id || `cca_${customerId}`;
+          const paymentKey = `opening-adv-${customerId}`;
           const existingPayment = await db.khataPayment.findUnique({
             where: { idempotencyKey: paymentKey },
             select: { id: true, amountMinor: true },
           });
 
           if (!existingPayment) {
-            await db.khataPayment.create({
+            const payment = await db.khataPayment.create({
               data: {
                 tenantId: actor.tenantId,
                 companyId: company.id,
                 customerId,
-                creditAccountId: creditAccount.id,
+                creditAccountId: advCreditAccountId,
                 currency: company.currency,
                 actorUserId: actor.userId,
                 amountMinor: advance,
@@ -318,9 +449,27 @@ async function importCustomers(
                 idempotencyKey: paymentKey,
               },
             });
+
+            if (db?.khataAdvanceEntry?.create) {
+              await db.khataAdvanceEntry.create({
+                data: {
+                  tenantId: actor.tenantId,
+                  companyId: company.id,
+                  customerId,
+                  creditAccountId: advCreditAccountId,
+                  currency: company.currency,
+                  entryType: "CREDIT_ADVANCE_DEPOSIT",
+                  amountMinor: advance,
+                  khataPaymentId: payment.id,
+                  actorUserId: actor.userId,
+                  notes: "Opening advance deposit (Jama) imported from old software",
+                  idempotencyKey: `opening-adv-entry-${customerId}`,
+                },
+              });
+            }
           }
-        } catch {
-          // Advance balance shouldn't fail the customer creation itself
+        } catch (advErr) {
+          logError("import: opening advance creation failed", advErr);
         }
       }
     } else {

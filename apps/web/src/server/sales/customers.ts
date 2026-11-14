@@ -26,6 +26,7 @@ export interface CustomerHit {
   id: string;
   name: string;
   phone: string | null;
+  dueMinor?: number;
 }
 
 export const CUSTOMER_SEARCH_LIMIT = 20;
@@ -87,7 +88,16 @@ export async function searchCustomers(params: {
     take: Math.min(params.limit ?? CUSTOMER_SEARCH_LIMIT, CUSTOMER_SEARCH_LIMIT),
   });
 
-  return customers;
+  if (customers.length === 0) return [];
+
+  const dues = await Promise.all(
+    customers.map((c) => getCustomerDue({ tenantId: params.tenantId, customerId: c.id }))
+  );
+
+  return customers.map((c, i) => ({
+    ...c,
+    dueMinor: dues[i] || 0,
+  }));
 }
 
 /* ------------------------------------------------- the Customers workspace */
@@ -109,6 +119,7 @@ export interface CustomerRow {
   totalSpentMinor: number;
   lastPurchaseAt: Date | null;
   customerType: CustomerType;
+  dueMinor?: number;
 }
 
 export interface CustomerPage {
@@ -198,6 +209,11 @@ export async function listCustomers(params: {
 
   const byCustomer = new Map(stats.map((row) => [row.customerId, row]));
 
+  const dues = await Promise.all(
+    ids.map((id) => getCustomerDue({ tenantId: params.tenantId, customerId: id }))
+  );
+  const dueById = new Map(ids.map((id, i) => [id, dues[i] || 0]));
+
   return {
     rows: customers.map((customer) => {
       const stat = byCustomer.get(customer.id);
@@ -206,6 +222,7 @@ export async function listCustomers(params: {
         purchaseCount: stat?._count._all ?? 0,
         totalSpentMinor: stat?._sum.totalMinor ?? 0,
         lastPurchaseAt: stat?._max.completedAt ?? null,
+        dueMinor: dueById.get(customer.id) ?? 0,
       };
     }),
     total,
@@ -511,6 +528,7 @@ export type CustomerDetail = CustomerRow & {
   gstin: string | null;
   priceListId: string | null;
   addressCount: number;
+  dueMinor: number;
   recentSales: Array<{
     id: string;
     billNumber: string;
@@ -546,7 +564,7 @@ export async function getCustomerDetail(params: {
 
   if (!customer) return null;
 
-  const [stats, recentSales] = await Promise.all([
+  const [stats, recentSales, dueMinor] = await Promise.all([
     db.sale.aggregate({
       where: { tenantId: params.tenantId, customerId: params.id, status: "COMPLETED" },
       _sum: { totalMinor: true },
@@ -564,7 +582,8 @@ export async function getCustomerDetail(params: {
         totalMinor: true,
         status: true,
       }
-    })
+    }),
+    getCustomerDue({ tenantId: params.tenantId, customerId: customer.id }),
   ]);
 
   return {
@@ -580,6 +599,7 @@ export async function getCustomerDetail(params: {
     gstin: customer.gstin,
     priceListId: customer.priceListId,
     addressCount: customer._count.addressLinks,
+    dueMinor,
     purchaseCount: stats._count._all ?? 0,
     totalSpentMinor: stats._sum.totalMinor ?? 0,
     lastPurchaseAt: stats._max.completedAt ?? null,

@@ -280,7 +280,14 @@ export default async function CustomersPage({
                               <div className="flex min-w-0 items-center gap-2">
                                 <CustomerAvatar id={customer.id} name={customer.name} size="xs" />
                                 <div className="min-w-0">
-                                  <p className="truncate font-medium text-primary">{customer.name}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="truncate font-medium text-primary">{customer.name}</p>
+                                    {(customer.dueMinor ?? 0) > 0 && (
+                                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[9.5px] font-bold text-amber-800" title={`Khata Due: ${formatMinor(customer.dueMinor!)}`}>
+                                        Udhar {formatMinor(customer.dueMinor!)}
+                                      </span>
+                                    )}
+                                  </div>
                                   <span className={`inline-block rounded px-1.5 py-0.2 text-[9px] font-bold border ${spendTier(customer.totalSpentMinor).className}`}>
                                     {spendTier(customer.totalSpentMinor).label}
                                   </span>
@@ -343,7 +350,14 @@ export default async function CustomersPage({
                       <CustomerAvatar id={customer.id} name={customer.name} size="md" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate font-medium text-primary">{customer.name}</p>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="truncate font-medium text-primary">{customer.name}</p>
+                            {(customer.dueMinor ?? 0) > 0 && (
+                              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[9.5px] font-bold text-amber-800" title={`Khata Due: ${formatMinor(customer.dueMinor!)}`}>
+                                Udhar {formatMinor(customer.dueMinor!)}
+                              </span>
+                            )}
+                          </div>
                           <p className="shrink-0 text-[11px] font-semibold tabular-nums text-primary">{formatMinor(customer.totalSpentMinor)}</p>
                         </div>
                         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-secondary">
