@@ -50,13 +50,16 @@ export async function GET(req: NextRequest) {
     // Deep paging is pointless at a till and costly in the database; past this, search or filter.
     const offset = Math.min(paise(sp.get("offset")) ?? 0, 5_000);
 
+    const requestedLimit = paise(sp.get("limit"));
+    const limit = requestedLimit ? Math.min(requestedLimit, 10_000) : CATALOG_SEARCH_LIMIT;
+
     const { results, hasMore } = await searchCatalogPage({
       tenantId: resolved.context.tenantId,
       storeId: resolved.context.storeId,
       query,
       filters,
       offset,
-      limit: CATALOG_SEARCH_LIMIT,
+      limit,
     });
 
     return NextResponse.json({ status: "ok", results, hasMore, correlationId }, { status: 200 });

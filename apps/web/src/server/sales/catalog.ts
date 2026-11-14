@@ -41,7 +41,8 @@ export interface CatalogHit {
   pendingPrices?: PendingPriceOption[];
 }
 
-export const CATALOG_SEARCH_LIMIT = 100;
+export const CATALOG_SEARCH_LIMIT = 2_000;
+export const CATALOG_SEARCH_MAX_LIMIT = 10_000;
 
 export interface CatalogFilters {
   category?: string;
@@ -70,7 +71,7 @@ export async function searchCatalogPage(params: {
   offset?: number;
 }): Promise<{ results: CatalogHit[]; hasMore: boolean }> {
   const query = params.query.trim();
-  const take = Math.min(params.limit ?? CATALOG_SEARCH_LIMIT, CATALOG_SEARCH_LIMIT);
+  const take = Math.min(params.limit ?? CATALOG_SEARCH_LIMIT, CATALOG_SEARCH_MAX_LIMIT);
   const skip = Math.max(0, Math.floor(params.offset ?? 0));
   const f = params.filters ?? {};
   const product = {

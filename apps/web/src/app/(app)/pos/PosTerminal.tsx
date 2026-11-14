@@ -1619,18 +1619,20 @@ export function PosTerminal(props: {
                   })}
                 </div>
 
-                {search.hasMore && search.term === searchKey && (
-                  <div className="mt-4 flex flex-col items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => void loadMore()}
-                      disabled={loadingMore}
-                      aria-busy={loadingMore}
-                      className="amb-focus amb-press inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      {loadingMore ? "Loading…" : "Load more products"}
-                    </button>
-                    <span className="text-[12px] text-slate-500">
+                {results.length > 0 && (
+                  <div className="mt-4 flex flex-col items-center gap-1 pb-4">
+                    {search.hasMore && search.term === searchKey && (
+                      <button
+                        type="button"
+                        onClick={() => void loadMore()}
+                        disabled={loadingMore}
+                        aria-busy={loadingMore}
+                        className="amb-focus amb-press inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        {loadingMore ? "Loading…" : "Load more products"}
+                      </button>
+                    )}
+                    <span className="text-[12px] font-medium text-slate-500">
                       Showing {productGroups.length} {productGroups.length === 1 ? "product" : "products"}
                       {results.length !== productGroups.length ? ` (${results.length} variants)` : ""}
                     </span>
