@@ -198,6 +198,7 @@ export async function scanBarcode(params: {
     },
     select: {
       id: true,
+      productId: true,
       sku: true,
       barcode: true,
       size: true,
@@ -243,6 +244,7 @@ export async function scanBarcode(params: {
   }));
 
   return {
+    productId: variant.productId,
     variantId: variant.id,
     productName: variant.product.name,
     sku: variant.sku,

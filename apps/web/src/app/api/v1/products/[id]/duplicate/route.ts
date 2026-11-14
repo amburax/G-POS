@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       imageUrl: sourceProduct.imageUrl,
       hsnCode: sourceProduct.hsnCode,
       isActive: true,
-      baseUomId: sourceProduct.baseUomId,
+      baseUomId: sourceProduct.baseUomId ?? undefined,
       correlationId,
       variants: preparedVariants,
     });

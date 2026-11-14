@@ -297,10 +297,10 @@ export function ThermalPrinterModal(props: {
                     <span>Subtotal</span>
                     <span>{Math.round(props.receiptData.subtotalMinor / 100).toLocaleString("en-IN")}</span>
                   </div>
-                  {props.receiptData.discountMinor > 0 && (
+                  {Boolean(props.receiptData.discountMinor && props.receiptData.discountMinor > 0) && (
                     <div className="flex justify-between text-emerald-700">
                       <span>Discount</span>
-                      <span>-{Math.round(props.receiptData.discountMinor / 100).toLocaleString("en-IN")}</span>
+                      <span>-{Math.round((props.receiptData.discountMinor ?? 0) / 100).toLocaleString("en-IN")}</span>
                     </div>
                   )}
                 </div>

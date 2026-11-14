@@ -414,7 +414,7 @@ export function ProductDetailsView({
                 <div className="font-mono text-xs text-slate-500">{v.sku}</div>
                 {v.barcode ? (
                   <div className="pt-2 flex flex-col items-center justify-center bg-white p-2 rounded-lg border border-slate-200/60">
-                    <BarcodeSvg barcode={v.barcode} />
+                    <BarcodeSvg value={v.barcode} />
                     <span className="font-mono text-[11px] font-bold tracking-widest text-slate-700 mt-1">{v.barcode}</span>
                   </div>
                 ) : (

@@ -20,7 +20,7 @@ import {
   normalizePhone,
   phoneLookupVariants,
 } from "@/lib/customerFields";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 export interface CustomerHit {
   id: string;

@@ -90,7 +90,7 @@ export function ProductDetailPanel({
   // Print barcoding variants
   const printableVariants = React.useMemo(() => {
     return product.variants.map((v) => {
-      const stockRow = detail.storeStock.find((s) => s.variantId === v.id);
+      const stockRow = detail.storeStock.find((s) => (s as any).variantId === v.id);
       const stockQty = stockRow && stockRow.quantity > 0 ? stockRow.quantity : 1;
       return {
         id: v.id,
@@ -570,9 +570,9 @@ export function ProductDetailPanel({
             <Row label="Product ID" value={<span className="font-mono text-[10px]">{product.id}</span>} />
             <Row label="Brand" value={product.brand || "—"} />
             <Row label="Category" value={product.category || "—"} />
-            <Row label="HSN Code" value={product.hsnCode ? <span className="font-mono">{product.hsnCode}</span> : "—"} />
-            <Row label="Base Unit" value={product.baseUom ? `${product.baseUom.name} (${product.baseUom.code})` : "Pieces (PCS)"} />
-            <Row label="Created Date" value={DATE_FORMAT.format(new Date(product.createdAt))} />
+            <Row label="HSN Code" value={(product as any).hsnCode ? <span className="font-mono">{(product as any).hsnCode}</span> : "—"} />
+            <Row label="Base Unit" value={(product as any).baseUom ? `${(product as any).baseUom.name} (${(product as any).baseUom.code})` : "Pieces (PCS)"} />
+            <Row label="Created Date" value={DATE_FORMAT.format(new Date((product as any).createdAt ?? detail.createdAt))} />
           </div>
         )}
 

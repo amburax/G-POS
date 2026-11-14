@@ -76,7 +76,7 @@ describe("tenantSiteConfigService", () => {
       { userId: "admin-1" },
       successTransport,
       mockCredentials as never,
-      "corr-test"
+      "00000000-0000-0000-0000-000000000001" as `${string}-${string}-${string}-${string}-${string}`
     );
 
     expect(result.status).toBe("ok");
@@ -125,14 +125,14 @@ describe("tenantSiteConfigService", () => {
       { userId: "admin-user" },
       successTransport,
       mockCredentials as never,
-      "corr-audit"
+      "00000000-0000-0000-0000-000000000002" as `${string}-${string}-${string}-${string}-${string}`
     );
 
     expect(result.status).toBe("ok");
     expect(result.redrivenCount).toBe(5);
 
     // Verify filter explicitly targeted failureCode: "ERP_SITE_NOT_SET"
-    const updateCall = mockTx.outboxEvent.updateMany.mock.calls[0][0];
+    const updateCall = mockTx.outboxEvent.updateMany.mock.calls[0]![0];
     expect(updateCall.where.failureCode).toBe("ERP_SITE_NOT_SET");
 
     // Verify audit log

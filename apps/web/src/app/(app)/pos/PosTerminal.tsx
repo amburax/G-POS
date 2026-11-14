@@ -1541,6 +1541,7 @@ export function PosTerminal(props: {
                   {productGroups.map((group, i) => {
                     const isMultiVariant = group.variants.length > 1;
                     const singleHit = group.variants[0];
+                    if (!singleHit) return null;
                     const stock = isMultiVariant
                       ? group.totalStock !== null
                         ? stockPill(group.totalStock, 0)

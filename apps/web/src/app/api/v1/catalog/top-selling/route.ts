@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
 
     type VariantQueryResult = {
       id: string;
+      productId: string;
       sku: string;
       barcode: string | null;
       size: string | null;
@@ -67,6 +68,7 @@ export async function GET(req: NextRequest) {
         },
         select: {
           id: true,
+          productId: true,
           sku: true,
           barcode: true,
           size: true,
@@ -97,6 +99,7 @@ export async function GET(req: NextRequest) {
         orderBy: [{ product: { name: "asc" } }, { sku: "asc" }],
         select: {
           id: true,
+          productId: true,
           sku: true,
           barcode: true,
           size: true,
@@ -114,6 +117,7 @@ export async function GET(req: NextRequest) {
     }
 
     const items: CatalogHit[] = variants.map((v) => ({
+      productId: v.productId,
       variantId: v.id,
       productName: v.product.name,
       sku: v.sku,

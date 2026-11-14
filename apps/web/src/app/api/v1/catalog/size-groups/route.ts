@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
   try {
     const resolved = await resolvePosContext(sessionToken);
     if (resolved.status === "unauthorized") return unauthorized(correlationId);
+    if (resolved.status !== "ok") return NextResponse.json({ sizeGroups: [] });
 
     const tenantId = resolved.context.tenantId;
 

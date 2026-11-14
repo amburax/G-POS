@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export function normalizeMasterCode(val: string): string | null {
   if (!val) return null;
@@ -62,7 +62,7 @@ export const PRESET_SIZE_GROUPS = [
  * and size groups exist for a tenant. Idempotent and safe to run multiple times.
  */
 export async function seedGarmentMasters(
-  db: PrismaClient,
+  db: PrismaClient | Prisma.TransactionClient,
   tenantId: string
 ): Promise<{ definitions: number; values: number; sizeGroups: number }> {
   // 1. Attribute Definitions: Size & Colour

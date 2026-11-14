@@ -36,6 +36,8 @@ export interface ProductVariantRow {
   mrpMinor: number | null;
   taxTreatment: string;
   taxRateBp: number;
+  taxRateMode?: string;
+  hsnCode?: string | null;
   isActive: boolean;
   stockQuantity: number | null;
 }
@@ -48,14 +50,12 @@ export interface ProductRow {
   imageUrl: string | null;
   isActive: boolean;
   variantCount: number;
-  /** Lowest and highest selling price across the product's variants, in minor units. */
   priceFromMinor: number | null;
   priceToMinor: number | null;
-  /**
-   * Summed operational count across this store (ADR-080). Null when *no* variant of the
-   * product has ever been counted here — different from a genuine zero.
-   */
   stockQuantity: number | null;
+  hsnCode?: string | null;
+  baseUom?: { name: string; code: string } | null;
+  createdAt?: Date | string;
   variants: ProductVariantRow[];
 }
 

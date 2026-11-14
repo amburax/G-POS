@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     let decodedCredentials = "";
     try {
-      decodedCredentials = Buffer.from(authMatch[1], "base64").toString("utf-8");
+      decodedCredentials = Buffer.from(authMatch[1] ?? "", "base64").toString("utf-8");
     } catch {
       return NextResponse.json({ error: "Invalid Base64 in authorization header" }, { status: 401 });
     }
@@ -328,14 +328,14 @@ export async function POST(req: NextRequest) {
               create: [
                 {
                   type: "SHIPPING",
-                  line1: customerInfo?.address || "Flipkart Logistics Direct Delivery",
+                  line1: "Flipkart Logistics Direct Delivery",
                   line2: `Marketplace Order #${extOrderId}`,
-                  city: customerInfo?.city || "Bengaluru",
-                  state: customerInfo?.state || "Karnataka",
-                  postalCode: customerInfo?.postalCode || "560001",
+                  city: "Bengaluru",
+                  state: "Karnataka",
+                  postalCode: "560001",
                   country: "India",
-                  contactName: customerInfo?.name || "Flipkart Customer",
-                  contactPhone: customerInfo?.phone || "9876543210",
+                  contactName: customer?.name || "Flipkart Customer",
+                  contactPhone: customer?.phone || "9876543210",
                 },
               ],
             },

@@ -91,7 +91,7 @@ export function CameraBarcodeScannerModal({ isOpen, onClose, onScan }: CameraBar
           if (videoDevs.length > 0 && !selectedDeviceId) {
             // Prefer back camera if available, otherwise first camera
             const backCam = videoDevs.find((d) => /back|rear|environment/i.test(d.label));
-            setSelectedDeviceId(backCam ? backCam.deviceId : videoDevs[0].deviceId);
+            setSelectedDeviceId(backCam ? backCam.deviceId : videoDevs[0]?.deviceId ?? "");
           }
         } catch {
           // Enumeration may fail if permission not yet granted; will re-check after getUserMedia
