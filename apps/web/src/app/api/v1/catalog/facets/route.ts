@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     const facets = await getCatalogFacets({
       tenantId: resolved.context.tenantId,
       storeId: resolved.context.storeId,
+      includeStockCounts: false,
     });
 
     return NextResponse.json(

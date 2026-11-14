@@ -495,8 +495,9 @@ export interface CatalogFacets {
 export async function getCatalogFacets(params: {
   tenantId: string;
   storeId: string;
+  includeStockCounts?: boolean;
 }): Promise<CatalogFacets> {
-  const { tenantId, storeId } = params;
+  const { tenantId, storeId, includeStockCounts = true } = params;
   const countedHere = { stockLevels: { some: { storeId } } };
   const inStockHere = { stockLevels: { some: { storeId, quantity: { gt: 0 } } } };
 
@@ -524,15 +525,21 @@ export async function getCatalogFacets(params: {
         _min: { priceMinor: true },
         _max: { priceMinor: true },
       }),
-      db.product.count({ where: { tenantId, isDraft: false, variants: { some: inStockHere } } }),
-      db.product.count({
-        where: {
-          tenantId,
-          isDraft: false,
-          AND: [{ variants: { some: countedHere } }, { variants: { none: inStockHere } }],
-        },
-      }),
-      db.product.count({ where: { tenantId, isDraft: false, variants: { none: countedHere } } }),
+      includeStockCounts
+        ? db.product.count({ where: { tenantId, isDraft: false, variants: { some: inStockHere } } })
+        : Promise.resolve(0),
+      includeStockCounts
+        ? db.product.count({
+            where: {
+              tenantId,
+              isDraft: false,
+              AND: [{ variants: { some: countedHere } }, { variants: { none: inStockHere } }],
+            },
+          })
+        : Promise.resolve(0),
+      includeStockCounts
+        ? db.product.count({ where: { tenantId, isDraft: false, variants: { none: countedHere } } })
+        : Promise.resolve(0),
     ]);
 
   // Sizes sort naturally rather than alphabetically: S, M, L, XL is the order a shopkeeper

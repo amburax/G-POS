@@ -57,6 +57,50 @@ export async function getCustomerDue(
   return Math.max(0, salesDue - paymentsCollected);
 }
 
+export async function getCustomersDueBatch(
+  params: { tenantId: string; customerIds: string[] },
+  client: { $queryRaw: Prisma.TransactionClient["$queryRaw"] } = db,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (params.customerIds.length === 0) return result;
+
+  const [salesResult, paymentsResult] = await Promise.all([
+    client.$queryRaw<{ customerId: string; sum: bigint | number | null }[]>`
+      SELECT "customerId", SUM("totalMinor" - "paidMinor") AS "sum"
+        FROM "sales"
+       WHERE "tenantId" = ${params.tenantId}
+         AND "customerId" IN (${Prisma.join(params.customerIds)})
+         AND "status" = 'COMPLETED'
+         AND "paidMinor" < "totalMinor"
+       GROUP BY "customerId"
+    `,
+    client.$queryRaw<{ customerId: string; sum: bigint | number | null }[]>`
+      SELECT "customerId", SUM("amountMinor") AS "sum"
+        FROM "khata_payments"
+       WHERE "tenantId" = ${params.tenantId}
+         AND "customerId" IN (${Prisma.join(params.customerIds)})
+       GROUP BY "customerId"
+    `,
+  ]);
+
+  const salesMap = new Map<string, number>();
+  for (const s of salesResult) {
+    if (s.customerId) salesMap.set(s.customerId, Number(s.sum ?? 0));
+  }
+  const paymentsMap = new Map<string, number>();
+  for (const p of paymentsResult) {
+    if (p.customerId) paymentsMap.set(p.customerId, Number(p.sum ?? 0));
+  }
+
+  for (const id of params.customerIds) {
+    const s = salesMap.get(id) ?? 0;
+    const p = paymentsMap.get(id) ?? 0;
+    result.set(id, Math.max(0, s - p));
+  }
+
+  return result;
+}
+
 export async function searchCustomers(params: {
   tenantId: string;
   query: string;
@@ -90,13 +134,14 @@ export async function searchCustomers(params: {
 
   if (customers.length === 0) return [];
 
-  const dues = await Promise.all(
-    customers.map((c) => getCustomerDue({ tenantId: params.tenantId, customerId: c.id }))
-  );
+  const dueMap = await getCustomersDueBatch({
+    tenantId: params.tenantId,
+    customerIds: customers.map((c) => c.id),
+  });
 
-  return customers.map((c, i) => ({
+  return customers.map((c) => ({
     ...c,
-    dueMinor: dues[i] || 0,
+    dueMinor: dueMap.get(c.id) ?? 0,
   }));
 }
 
@@ -209,10 +254,10 @@ export async function listCustomers(params: {
 
   const byCustomer = new Map(stats.map((row) => [row.customerId, row]));
 
-  const dues = await Promise.all(
-    ids.map((id) => getCustomerDue({ tenantId: params.tenantId, customerId: id }))
-  );
-  const dueById = new Map(ids.map((id, i) => [id, dues[i] || 0]));
+  const dueById = await getCustomersDueBatch({
+    tenantId: params.tenantId,
+    customerIds: ids,
+  });
 
   return {
     rows: customers.map((customer) => {

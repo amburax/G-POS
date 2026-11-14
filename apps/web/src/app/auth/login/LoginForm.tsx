@@ -220,6 +220,7 @@ export function LoginForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com"
+            suppressHydrationWarning
             className={`${FIELD_CLASS} pl-10 pr-4`}
           />
         </div>
@@ -242,6 +243,7 @@ export function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Enter your password"
+            suppressHydrationWarning
             className={`${FIELD_CLASS} pl-10 pr-11`}
           />
           {/*
@@ -260,6 +262,7 @@ export function LoginForm() {
             onClick={() => setShowPassword((v) => !v)}
             aria-label={showPassword ? "Hide password" : "Show password"}
             aria-pressed={showPassword}
+            suppressHydrationWarning
             className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg transition-opacity hover:opacity-70 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <IconEye open={showPassword} />
@@ -321,6 +324,7 @@ export function LoginForm() {
         type="submit"
         disabled={submitting}
         aria-busy={submitting}
+        suppressHydrationWarning
         className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 active:bg-primary-active disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitting ? (
