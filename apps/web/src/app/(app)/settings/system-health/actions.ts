@@ -56,12 +56,37 @@ export async function syncNowAction(_prev: SyncNowState): Promise<SyncNowState> 
   if (resolved.status !== "ok") return { status: "error", message: "Your session has ended. Sign in again." };
   const c = resolved.context;
   try {
-    const res = startBackgroundSync({ actor: { tenantId: c.tenantId, userId: c.userId, tenantRole: c.tenantRole, membershipRole: c.membershipRole } });
+    const res = await startBackgroundSync({ actor: { tenantId: c.tenantId, userId: c.userId, tenantRole: c.tenantRole, membershipRole: c.membershipRole } });
     if (res.status === "forbidden") return { status: "error", message: "Only the owner or a store manager can sync." };
+    if (res.status === "paused") {
+      return {
+        status: "error",
+        message: `Accounting sync is paused (${res.reason === "ERP_SITE_NOT_SET" ? "No accounting site is connected" : res.reason}). Connect an accounting system or mark records as synced.`,
+      };
+    }
     if (res.status === "already_running") return { status: "success", message: "Sync is running in background. Live progress updating below." };
     return { status: "success", message: "Sync started in background. Live progress updating below." };
   } catch (err) {
     logError("system health: sync now failed", err);
     return { status: "error", message: "Sync didn't run. Check that accounting is reachable and try again." };
+  }
+}
+
+export async function markAllSyncedAction(_prev: RetryState): Promise<RetryState> {
+  const token = (await cookies()).get(env.SESSION_COOKIE_NAME)?.value;
+  const resolved = await resolvePosContext(token);
+  if (resolved.status !== "ok") return { status: "error", message: "Your session has ended. Sign in again." };
+  const c = resolved.context;
+  try {
+    const { markAllTenantEventsSynced } = await import("@/server/ops/operations");
+    const res = await markAllTenantEventsSynced({
+      actor: { tenantId: c.tenantId, userId: c.userId, tenantRole: c.tenantRole },
+    });
+    if (res.status === "forbidden") return { status: "error", message: "Only the owner can mark records as synced." };
+    revalidatePath("/settings/system-health");
+    return { status: "success", message: `Marked ${res.count} record${res.count === 1 ? "" : "s"} as synced.` };
+  } catch (err) {
+    logError("system health: mark all synced failed", err);
+    return { status: "error", message: "That didn't work. Try again." };
   }
 }

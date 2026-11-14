@@ -10,6 +10,7 @@ import { DataTable, EmptyState, PageHeader, PermissionDeniedState, StatusBadge, 
 import { formatDateTime } from "../../sales/formatDateTime";
 import { RetryButton } from "./RetryButton";
 import { RetryAllButton } from "./RetryAllButton";
+import { MarkAllSyncedButton } from "./MarkAllSyncedButton";
 import { SystemHealthHeader } from "./SystemHealthHeader";
 import { backendWording } from "@/lib/backendWording";
 
@@ -51,6 +52,7 @@ export default async function SystemHealthPage() {
   const pending = data.types.reduce((s, t) => s + t.pending, 0);
   const failed = data.types.reduce((s, t) => s + t.failed, 0);
   const isOwner = ctx.tenantRole === "OWNER";
+  const isSyncPaused = data.tenant?.isSyncPaused ?? false;
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6">
@@ -62,10 +64,28 @@ export default async function SystemHealthPage() {
       <p className="text-xs text-slate-500">
         Records are sent to accounting automatically in the background. Use Sync now if they are waiting and you want them sent at once.
       </p>
-      {data.oldestPendingAt && (
-        <p className="amb-fade-in rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Oldest record waiting since {formatDateTime(data.oldestPendingAt)}. It is sent automatically; retries back off on errors.
-        </p>
+
+      {isSyncPaused ? (
+        <div className="amb-fade-in flex flex-col gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-900 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <span className="font-semibold text-amber-950">
+                Accounting sync is paused ({data.tenant?.syncPausedReason === "ERP_SITE_NOT_SET" ? "No accounting site connected" : (data.tenant?.syncPausedReason ?? "Paused")})
+              </span>
+            </div>
+            {isOwner && pending > 0 && <MarkAllSyncedButton count={pending} />}
+          </div>
+          <p className="text-xs text-amber-800">
+            Records are stored safely on device. Because external accounting is not active for this store, outbox events do not sync in the background. You can acknowledge them as synced or connect an accounting system in Settings.
+          </p>
+        </div>
+      ) : (
+        data.oldestPendingAt && (
+          <p className="amb-fade-in rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Oldest record waiting since {formatDateTime(data.oldestPendingAt)}. It is sent automatically; retries back off on errors.
+          </p>
+        )
       )}
 
       {data.types.length === 0 ? (

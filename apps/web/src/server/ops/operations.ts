@@ -65,7 +65,7 @@ export async function getOperationsCenter(params: { tenantId: string; storeId: s
 // ---------------------------------------------------------------------------------- 68 / 81
 
 export async function getSystemHealth(params: { tenantId: string }) {
-  const [byType, failures, oldestPending] = await Promise.all([
+  const [byType, failures, oldestPending, tenant] = await Promise.all([
     db.$queryRaw<{ eventType: string; pending: bigint; failed: bigint; published: bigint; lastPublishedAt: Date | null }[]>`
       SELECT "eventType",
              COUNT(*) FILTER (WHERE "publishedAt" IS NULL AND "deadLetteredAt" IS NULL) AS "pending",
@@ -88,6 +88,10 @@ export async function getSystemHealth(params: { tenantId: string }) {
       orderBy: { occurredAt: "asc" },
       select: { occurredAt: true },
     }),
+    db.tenant.findUnique({
+      where: { id: params.tenantId },
+      select: { isSyncPaused: true, syncPausedReason: true, erpnextSiteId: true },
+    }),
   ]);
   return {
     types: byType.map((r) => ({
@@ -100,6 +104,7 @@ export async function getSystemHealth(params: { tenantId: string }) {
     // The stored error can carry ERPNext's response text; keep it short on screen.
     failures: failures.map((f) => ({ ...f, lastError: f.lastError ? f.lastError.slice(0, 300) : null })),
     oldestPendingAt: oldestPending?.occurredAt ?? null,
+    tenant,
   };
 }
 
@@ -156,10 +161,22 @@ export function backgroundSyncStatus(tenantId: string) {
   return runningSync.get(tenantId) ?? null;
 }
 
-export function startBackgroundSync(input: { actor: Actor & { membershipRole: string | null } }) {
+export async function startBackgroundSync(input: { actor: Actor & { membershipRole: string | null } }) {
   const { actor } = input;
   if (actor.tenantRole !== "OWNER" && actor.membershipRole !== "STORE_MANAGER") return { status: "forbidden" as const };
   if (runningSync.has(actor.tenantId)) return { status: "already_running" as const };
+
+  const tenant = await db.tenant.findUnique({
+    where: { id: actor.tenantId },
+    select: { isSyncPaused: true, syncPausedReason: true, erpnextSiteId: true },
+  });
+  if (tenant?.isSyncPaused || !tenant?.erpnextSiteId) {
+    return {
+      status: "paused" as const,
+      reason: tenant?.syncPausedReason || "ERP_SITE_NOT_SET",
+    };
+  }
+
   const progress = { startedAt: Date.now(), sent: 0, failed: 0 };
   runningSync.set(actor.tenantId, progress);
   void (async () => {
@@ -185,6 +202,23 @@ export function startBackgroundSync(input: { actor: Actor & { membershipRole: st
     }
   })();
   return { status: "started" as const };
+}
+
+/** Mark all pending outbox events as published/synced (for shops running in standalone mode or after mass import). Owner only. */
+export async function markAllTenantEventsSynced(input: { actor: Actor }) {
+  if (input.actor.tenantRole !== "OWNER") return { status: "forbidden" as const };
+  const res = await db.outboxEvent.updateMany({
+    where: { tenantId: input.actor.tenantId, publishedAt: null, deadLetteredAt: null },
+    data: { publishedAt: new Date() },
+  });
+  await writeAuditLog({
+    tenantId: input.actor.tenantId,
+    userId: input.actor.userId,
+    action: "SyncBacklogMarkedSynced",
+    correlationId: randomUUID(),
+    metadata: { count: res.count },
+  });
+  return { status: "ok" as const, count: res.count };
 }
 
 export async function syncNow(input: { actor: Actor & { membershipRole: string | null } }) {
