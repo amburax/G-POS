@@ -4,6 +4,12 @@
   "workspaces": [
     "apps/*"
   ],
+  "scripts": {
+    "build": "npm run build --workspace=@amburax/web",
+    "typecheck": "npm run typecheck --workspace=@amburax/web",
+    "test": "npm test --workspace=@amburax/web",
+    "prisma:generate": "npm run prisma:generate --workspace=@amburax/web"
+  },
   "packageManager": "npm@11.9.0",
   "engines": {
     "node": ">=22",

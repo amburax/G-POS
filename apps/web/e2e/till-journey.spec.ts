@@ -151,7 +151,7 @@ test("a merchant adds a terminal, pairs it, and rings up a real sale", async ({ 
   expect(sale.items[0]!.quantity).toBe(2);
 
   // The money adds up, in integer minor units — no float ever touches this path.
-  const paid = sale.payments.reduce((sum, p) => sum + p.amountMinor, 0);
+  const paid = sale.payments.reduce((sum: number, p: { amountMinor: number }) => sum + p.amountMinor, 0);
   expect(paid).toBe(sale.totalMinor);
 
   // ── DB VERIFICATION: inventory moved, as a ledger entry ───────────────────────────────────

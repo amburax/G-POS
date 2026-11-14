@@ -16,7 +16,7 @@ async function main() {
 
   console.log(`[StatusFix] Matched tenants count: ${matching.length}`);
   console.log("[StatusFix] Matching tenants:");
-  matching.forEach((t, i) => {
+  matching.forEach((t: { id: string; name: string; slug: string; erpnextProvisionStatus: string | null }, i: number) => {
     console.log(`  ${i + 1}. [${t.id}] "${t.name}" (slug: ${t.slug}) - status: ${t.erpnextProvisionStatus}`);
   });
 
